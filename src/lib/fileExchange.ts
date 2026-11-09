@@ -38,9 +38,42 @@ export type ShareOutcome =
   | { status: 'unsupported' }
   | { status: 'error'; variant: ShareVariant; message: string };
 
-/** Abre el menú nativo de compartir con la primera variante que el navegador admita. */
+const REJECTED_KEY = 'share-rejected-variants';
+
+/**
+ * Variantes que el navegador dijo admitir (canShare) pero rechazó al compartir de verdad.
+ * Chrome/Brave en Android validan el tipo de archivo en un segundo paso que canShare no ve.
+ */
+export function rejectedVariants(): ShareVariant['id'][] {
+  try {
+    return JSON.parse(localStorage.getItem(REJECTED_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function markRejected(id: ShareVariant['id']): void {
+  const next = [...new Set([...rejectedVariants(), id])];
+  localStorage.setItem(REJECTED_KEY, JSON.stringify(next));
+}
+
+export function resetRejectedVariants(): void {
+  localStorage.removeItem(REJECTED_KEY);
+}
+
+/** Siguiente variante utilizable: admitida por canShare y no rechazada antes. */
+export function nextShareVariant(text: string, baseName: string): ShareVariant | undefined {
+  const rejected = rejectedVariants();
+  return shareVariants(baseName).find((v) => !rejected.includes(v.id) && canShareVariant(text, v));
+}
+
+/**
+ * Abre el menú nativo de compartir con la primera variante utilizable.
+ * Si el navegador la rechaza, se anota y el siguiente toque probará la siguiente:
+ * no se puede reintentar en el mismo toque porque el gesto del usuario ya se ha consumido.
+ */
 export async function shareText(text: string, baseName: string, title: string): Promise<ShareOutcome> {
-  const variant = shareVariants(baseName).find((v) => canShareVariant(text, v));
+  const variant = nextShareVariant(text, baseName);
   if (!variant) return { status: 'unsupported' };
   try {
     await navigator.share({ files: [makeFile(text, variant)], title });
@@ -48,6 +81,7 @@ export async function shareText(text: string, baseName: string, title: string): 
   } catch (e) {
     const err = e as DOMException;
     if (err.name === 'AbortError') return { status: 'cancelled', variant };
+    if (err.name === 'NotAllowedError') markRejected(variant.id);
     return { status: 'error', variant, message: `${err.name}: ${err.message}` };
   }
 }

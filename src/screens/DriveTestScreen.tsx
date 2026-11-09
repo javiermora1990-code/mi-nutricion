@@ -3,7 +3,15 @@ import { CheckCircle2, Download, FileUp, Share2, Trash2, XCircle } from 'lucide-
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { TABLE_NAMES, db, newBase } from '../db/db';
 import type { AiExchangeLog } from '../db/types';
-import { canShareVariant, downloadText, formatBytes, shareText, shareVariants } from '../lib/fileExchange';
+import {
+  canShareVariant,
+  downloadText,
+  formatBytes,
+  nextShareVariant,
+  rejectedVariants,
+  shareText,
+  shareVariants,
+} from '../lib/fileExchange';
 import { parseDocumentText, type ParseResult } from '../schemas';
 import { sampleProfileContext } from '../schemas/samples';
 
@@ -63,6 +71,7 @@ function Diagnostics({ offlineReady }: { offlineReady: boolean }) {
 
   const variants = shareVariants('prueba');
   const shareable = variants.filter((v) => canShareVariant('{}', v));
+  const rejected = rejectedVariants();
   const standalone = window.matchMedia('(display-mode: standalone)').matches;
 
   return (
@@ -79,7 +88,11 @@ function Diagnostics({ offlineReady }: { offlineReady: boolean }) {
           {standalone ? 'sí' : 'no (se está usando en el navegador)'}
         </Check>
         <Check ok={shareable.length > 0} label="Compartir archivos (Web Share API)">
-          {shareable.length ? `admite: ${shareable.map((v) => v.label).join(' · ')}` : 'no disponible → usar Descargar'}
+          {shareable.length
+            ? `declara admitir: ${shareable
+                .map((v) => `${v.label}${rejected.includes(v.id) ? ' ✗ rechazado al probar' : ''}`)
+                .join(' · ')}`
+            : 'no disponible → usar Descargar'}
         </Check>
         <Check ok={persisted === true} label="Almacenamiento persistente" optional>
           {persisted === null ? 'desconocido' : persisted ? 'concedido' : 'no concedido'}
@@ -135,7 +148,13 @@ function ExportCard() {
     } else if (outcome.status === 'unsupported') {
       setMessage({ ok: false, text: 'Este navegador no permite compartir este tipo de archivo. Usa «Descargar al teléfono».' });
     } else {
-      setMessage({ ok: false, text: `Error al compartir con ${outcome.variant.label}: ${outcome.message}` });
+      const next = nextShareVariant(text, baseName);
+      setMessage({
+        ok: false,
+        text: next
+          ? `El navegador no deja compartir ${outcome.variant.label} (${outcome.message}). Pulsa otra vez «Compartir»: probaré con ${next.label}.`
+          : `El navegador no deja compartir ${outcome.variant.label} (${outcome.message}) y no quedan más formatos. Usa «Descargar al teléfono».`,
+      });
     }
   }
 
@@ -245,7 +264,7 @@ function ImportCard() {
       <input
         ref={filtered}
         type="file"
-        accept="application/json,.json"
+        accept="application/json,.json,text/plain,.txt"
         className="hidden"
         onChange={(e) => onFile(e, 'filtro JSON')}
       />
