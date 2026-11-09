@@ -136,7 +136,7 @@ function ExportCard() {
 
   async function onShare() {
     const { text, baseName, log } = await buildAndLog('compartir');
-    const outcome = await shareText(text, baseName, 'Mi Nutrición — archivo de prueba');
+    const outcome = await shareText(text, baseName);
     if (outcome.status === 'shared') {
       await db.aiExchangeLog.add({ ...log, fileName: outcome.variant.fileName });
       setMessage({
