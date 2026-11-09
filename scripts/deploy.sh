@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REMOTE="$(git remote get-url origin)"
 WORK="$(mktemp -d)"
-NAME="$(git config user.name)"
+NAME="$(git config user.name || git log -1 --format=%an)"
 EMAIL="$(git config user.email)"
 trap 'rm -rf "$WORK"' EXIT
 
