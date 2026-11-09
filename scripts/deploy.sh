@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 REMOTE="$(git remote get-url origin)"
 WORK="$(mktemp -d)"
+NAME="$(git config user.name)"
+EMAIL="$(git config user.email)"
 trap 'rm -rf "$WORK"' EXIT
 
 npm test
@@ -17,8 +19,8 @@ cp -r dist/. "$WORK/"
 touch "$WORK/.nojekyll"
 
 cd "$WORK"
-git config user.name "$(git -C "$OLDPWD" config user.name)"
-git config user.email "$(git -C "$OLDPWD" config user.email)"
+git config user.name "$NAME"
+git config user.email "$EMAIL"
 git add -A
 if git diff --cached --quiet; then
   echo "Sin cambios que publicar."
