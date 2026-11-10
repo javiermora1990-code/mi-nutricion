@@ -27,7 +27,7 @@ const range = (central: number, min: number, max: number) => ({
 
 const sampleTargets = () => ({
   default: {
-    energyKcal: range(2600, -150, 150),
+    energyKcal: range(2600, 2450, 2750),
     proteinG: range(120, 112, 144),
     fatG: range(80, 64, 96),
     carbsG: range(350, 300, 400),
