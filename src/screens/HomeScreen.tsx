@@ -3,7 +3,7 @@ import { OBJECTIVE_LABEL, TargetsTable } from '../components/TargetsTable';
 import { db } from '../db/db';
 import { formatLongDate, formatShortDate, localIsoDate } from '../lib/dates';
 import { getActiveGoal, getCurrentProfile, getCurrentWeight, getPendingProposal } from '../lib/profileGoals';
-import { getProgressLog } from '../lib/progress';
+import { getLatestLog } from '../lib/progress';
 import type { Route } from '../routes';
 import { Card, Notice, Screen, btnPrimary, btnSecondary, fmt } from '../ui/kit';
 
@@ -15,7 +15,7 @@ export function HomeScreen({ go }: { go: (route: Route) => void }) {
       getCurrentWeight(db),
       getActiveGoal(db),
       getPendingProposal(db),
-      getProgressLog(db, today),
+      getLatestLog(db),
     ]);
     return { profile, weight, active, pending, log };
   }, [today]);
@@ -65,21 +65,27 @@ export function HomeScreen({ go }: { go: (route: Route) => void }) {
         </Card>
       )}
 
-      <Card title="Hoy">
-        <dl className="grid grid-cols-2 gap-2 text-sm">
-          <Item label="Peso de hoy" value={log?.weightKg != null ? `${fmt(log.weightKg, 1)} kg` : 'Sin dato'} />
-          <Item label="Sueño" value={log?.sleepHours != null ? `${fmt(log.sleepHours, 1)} h` : 'Sin dato'} />
-          <Item label="Energía" value={log?.energyLevel1to5 != null ? `${log.energyLevel1to5} de 5` : 'Sin dato'} />
-          <Item label="Hambre" value={log?.hungerLevel1to5 != null ? `${log.hungerLevel1to5} de 5` : 'Sin dato'} />
-        </dl>
-        {weight && (
+      <Card title="Seguimiento semanal">
+        {log ? (
+          <>
+            <p className="text-sm text-stone-600">Último registro: {formatShortDate(log.date)}.</p>
+            <dl className="grid grid-cols-2 gap-2 text-sm">
+              <Item label="Peso" value={log.weightKg != null ? `${fmt(log.weightKg, 1)} kg` : 'Sin dato'} />
+              <Item label="Sueño" value={log.sleepHours != null ? `${fmt(log.sleepHours, 1)} h` : 'Sin dato'} />
+              <Item label="Energía" value={log.energyLevel1to5 != null ? `${log.energyLevel1to5} de 5` : 'Sin dato'} />
+              <Item label="Hambre" value={log.hungerLevel1to5 != null ? `${log.hungerLevel1to5} de 5` : 'Sin dato'} />
+            </dl>
+          </>
+        ) : (
+          <p className="text-sm text-stone-600">Todavía no hay ningún registro. Es opcional: con uno por semana basta.</p>
+        )}
+        {weight && weight.source === 'profile' && (
           <p className="text-sm text-stone-600">
-            Peso actual: <strong>{fmt(weight.weightKg, 1)} kg</strong> (
-            {weight.source === 'progress' ? `registro del ${formatShortDate(weight.date)}` : 'declarado en el perfil'}).
+            Peso en uso: <strong>{fmt(weight.weightKg, 1)} kg</strong> (declarado en el perfil).
           </p>
         )}
-        <button className={btnPrimary} onClick={() => go('progreso')}>
-          {log ? 'Editar el registro de hoy' : 'Registrar el día de hoy'}
+        <button className={btnSecondary} onClick={() => go('progreso')}>
+          Abrir registro semanal
         </button>
       </Card>
     </Screen>

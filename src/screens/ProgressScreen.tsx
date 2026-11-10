@@ -2,10 +2,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, type ChartSeries } from '../components/LineChart';
 import { db } from '../db/db';
-import { formatLongDate, localIsoDate } from '../lib/dates';
+import { formatLongDate, formatShortDate, localIsoDate, startOfWeek } from '../lib/dates';
 import {
   EMPTY_PROGRESS,
   WINDOWS,
+  getLogInWeek,
   getProgressLog,
   loadSeries,
   progressInputSchema,
@@ -20,7 +21,7 @@ const SCALE = [1, 2, 3, 4, 5].map((n) => ({ value: n, label: String(n) }));
 
 export function ProgressScreen() {
   return (
-    <Screen title="Progreso" subtitle="Peso, sueño, energía y hambre. Rellena solo lo que sepas.">
+    <Screen title="Progreso" subtitle="Un registro por semana basta. Todo es opcional: rellena solo lo que sepas.">
       <DayForm />
       <Charts />
     </Screen>
@@ -38,6 +39,11 @@ function DayForm() {
   const [notes, setNotes] = useState('');
   const [exists, setExists] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Si ya hay un registro de esta semana, se abre ese para corregirlo en lugar de crear otro.
+  useEffect(() => {
+    getLogInWeek(db, today).then((log) => log && setDate(log.date));
+  }, [today]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,8 +102,14 @@ function DayForm() {
   }
 
   return (
-    <Card title={date === today ? 'Registro de hoy' : 'Registro de otro día'}>
-      <Field label="Día" hint={formatLongDate(date)}>
+    <Card
+      title={
+        startOfWeek(date) === startOfWeek(today)
+          ? 'Registro de esta semana'
+          : `Registro de la semana del ${formatShortDate(startOfWeek(date))}`
+      }
+    >
+      <Field label="Fecha del registro" hint={formatLongDate(date)}>
         <input
           type="date"
           className={inputClass}
@@ -111,28 +123,18 @@ function DayForm() {
           }}
         />
       </Field>
-      {exists && <Notice tone="info">Ya hay un registro de este día: al guardar se actualiza.</Notice>}
+      {exists && <Notice tone="info">Ya hay un registro con esta fecha: al guardar se actualiza.</Notice>}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Peso (kg)">
           <input inputMode="decimal" className={inputClass} value={weight} placeholder="Sin dato" onChange={(e) => setWeight(e.target.value)} />
         </Field>
-        <Field label="Sueño (horas)">
+        <Field label="Sueño medio (h/noche)">
           <input inputMode="decimal" className={inputClass} value={sleep} placeholder="Sin dato" onChange={(e) => setSleep(e.target.value)} />
         </Field>
       </div>
-      <Choice label="Calidad del sueño (1 mala – 5 muy buena)" value={values.sleepQuality1to5} options={SCALE} allowClear onChange={(v) => set('sleepQuality1to5', v)} />
-      <Choice label="Energía (1 muy baja – 5 muy alta)" value={values.energyLevel1to5} options={SCALE} allowClear onChange={(v) => set('energyLevel1to5', v)} />
-      <Choice label="Hambre (1 nada – 5 mucha)" value={values.hungerLevel1to5} options={SCALE} allowClear onChange={(v) => set('hungerLevel1to5', v)} />
-      <Choice
-        label="¿Has entrenado?"
-        value={values.trained}
-        allowClear
-        onChange={(v) => set('trained', v)}
-        options={[
-          { value: true, label: 'Sí' },
-          { value: false, label: 'No' },
-        ]}
-      />
+      <Choice label="Calidad del sueño esta semana (1 mala – 5 muy buena)" value={values.sleepQuality1to5} options={SCALE} allowClear onChange={(v) => set('sleepQuality1to5', v)} />
+      <Choice label="Energía esta semana (1 muy baja – 5 muy alta)" value={values.energyLevel1to5} options={SCALE} allowClear onChange={(v) => set('energyLevel1to5', v)} />
+      <Choice label="Hambre esta semana (1 nada – 5 mucha)" value={values.hungerLevel1to5} options={SCALE} allowClear onChange={(v) => set('hungerLevel1to5', v)} />
       <Field label="Notas (opcional)">
         <textarea className={`${inputClass} py-2`} rows={2} maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
@@ -153,7 +155,7 @@ const ORANGE = '#c2410c';
 const SCALE_RANGE: [number, number] = [0.5, 5.5];
 
 function Charts() {
-  const [days, setDays] = useState<WindowDays>(30);
+  const [days, setDays] = useState<WindowDays>(90);
   const today = localIsoDate();
   const series = useLiveQuery(() => loadSeries(db, today, days), [today, days]);
 
@@ -187,7 +189,7 @@ function Charts() {
           options={WINDOWS.map((w) => ({ value: w, label: `${w} días` }))}
         />
         <p className="text-xs text-stone-500">
-          Los días sin dato se dejan en blanco: la línea se corta y no cuentan en las medias.
+          Solo se dibujan los registros reales: entre uno y otro no se inventan valores, y las medias cuentan solo los registros que tienen dato.
         </p>
       </Card>
       {series && charts && (
@@ -196,7 +198,7 @@ function Charts() {
             <LineChart dates={series.dates} series={charts.weight} />
             <Summary days={days} unit="kg" decimals={1} s={charts.summary.weight} showChange />
           </Card>
-          <Card title="Sueño (horas)">
+          <Card title="Sueño (horas por noche)">
             <LineChart dates={series.dates} series={charts.sleep} />
             <Summary days={days} unit="h" decimals={1} s={charts.summary.sleep} />
             <Summary days={days} label="Calidad media" unit="de 5" decimals={1} s={charts.summary.quality} />
@@ -233,7 +235,7 @@ function Summary({
       {label}: <strong className="tabular-nums">{s.average === null ? 'Sin dato' : `${fmt(s.average, decimals)} ${unit}`}</strong>
       <span className="text-stone-500">
         {' '}
-        · {s.count} de {days} días con dato
+        · {s.count} {s.count === 1 ? 'registro' : 'registros'} en {days} días
       </span>
       {showChange && change !== null && (
         <span className="text-stone-500">

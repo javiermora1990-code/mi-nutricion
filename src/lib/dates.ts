@@ -37,3 +37,9 @@ function toDate(date: IsoDate): Date {
 
 export const formatShortDate = (date: IsoDate) => shortDate.format(toDate(date));
 export const formatLongDate = (date: IsoDate) => longDate.format(toDate(date));
+
+/** Lunes de la semana (lunes a domingo) a la que pertenece una fecha. */
+export function startOfWeek(date: IsoDate): IsoDate {
+  const weekday = toDate(date).getDay(); // 0 = domingo
+  return addDays(date, weekday === 0 ? -6 : 1 - weekday);
+}

@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { newBase, nowIso, type MiNutricionDB } from '../db/db';
 import type { IsoDate, ProgressLog } from '../db/types';
-import { addDays } from './dates';
+import { addDays, startOfWeek } from './dates';
 
 const scale1to5 = z.number().int().min(1).max(5).nullable();
 
@@ -112,4 +112,21 @@ export async function loadSeries(db: MiNutricionDB, endDate: IsoDate, days: numb
   const start = addDays(endDate, -(days - 1));
   const logs = await db.progressLogs.where('date').between(start, endDate, true, true).toArray();
   return buildSeries(logs, endDate, days);
+}
+
+/** Último registro guardado (el de fecha más reciente), o null si no hay ninguno. */
+export async function getLatestLog(db: MiNutricionDB): Promise<ProgressLog | null> {
+  const logs = await db.progressLogs.orderBy('date').reverse().toArray();
+  return logs.find((l) => l.deletedAt === null) ?? null;
+}
+
+/**
+ * Registro de la semana (lunes a domingo) de `date`, si ya existe: el más
+ * reciente de esa semana. Sirve para que el registro semanal se corrija en
+ * lugar de duplicarse.
+ */
+export async function getLogInWeek(db: MiNutricionDB, date: IsoDate): Promise<ProgressLog | null> {
+  const monday = startOfWeek(date);
+  const logs = await db.progressLogs.where('date').between(monday, addDays(monday, 6), true, true).toArray();
+  return logs.filter((l) => l.deletedAt === null).sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
 }

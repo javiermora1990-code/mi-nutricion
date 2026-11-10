@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDb, type MiNutricionDB } from '../src/db/db';
-import { addDays, localIsoDate, noonEpochSeconds } from '../src/lib/dates';
+import { addDays, localIsoDate, noonEpochSeconds, startOfWeek } from '../src/lib/dates';
 import {
   EMPTY_PROGRESS,
   buildSeries,
+  getLatestLog,
+  getLogInWeek,
   getProgressLog,
   loadSeries,
   saveProgressLog,
@@ -151,5 +153,41 @@ describe('promedios con número de registros evaluables', () => {
     const s = summarize([null, null, 4, null, null, null, null]);
     expect(s.count).toBe(1);
     expect(s.average).toBe(4);
+  });
+});
+
+describe('registro semanal', () => {
+  it('la semana va de lunes a domingo', () => {
+    // 2026-03-30 es lunes y 2026-04-05, domingo.
+    expect(startOfWeek('2026-03-30')).toBe('2026-03-30');
+    expect(startOfWeek('2026-04-01')).toBe('2026-03-30');
+    expect(startOfWeek('2026-04-05')).toBe('2026-03-30');
+    expect(startOfWeek('2026-04-06')).toBe('2026-04-06');
+  });
+
+  it('encuentra el registro ya hecho esta semana para corregirlo en lugar de duplicarlo', async () => {
+    await saveProgressLog(db, '2026-03-29', { ...EMPTY_PROGRESS, weightKg: 71 }); // domingo de la semana anterior
+    expect(await getLogInWeek(db, '2026-04-01')).toBeNull();
+
+    await saveProgressLog(db, '2026-03-31', { ...EMPTY_PROGRESS, weightKg: 70 });
+    expect((await getLogInWeek(db, '2026-04-01'))?.date).toBe('2026-03-31');
+    expect((await getLogInWeek(db, '2026-04-05'))?.date).toBe('2026-03-31');
+    expect(await getLogInWeek(db, '2026-04-06')).toBeNull();
+  });
+
+  it('devuelve el último registro guardado, o null si no hay ninguno', async () => {
+    expect(await getLatestLog(db)).toBeNull();
+    await saveProgressLog(db, '2026-03-31', { ...EMPTY_PROGRESS, weightKg: 70 });
+    await saveProgressLog(db, '2026-03-10', { ...EMPTY_PROGRESS, weightKg: 71 });
+    expect((await getLatestLog(db))?.date).toBe('2026-03-31');
+  });
+
+  it('con un registro por semana, la serie de 30 días conserva los huecos entre registros', async () => {
+    for (const date of ['2026-03-10', '2026-03-17', '2026-03-24', '2026-03-31']) {
+      await saveProgressLog(db, date, { ...EMPTY_PROGRESS, weightKg: 70 });
+    }
+    const s = await loadSeries(db, '2026-03-31', 30);
+    expect(summarize(s.values.weightKg).count).toBe(4);
+    expect(s.values.weightKg.filter((v) => v === null)).toHaveLength(26);
   });
 });
