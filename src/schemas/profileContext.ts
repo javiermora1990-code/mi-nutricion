@@ -60,6 +60,12 @@ const catalogItem = z.object({
   baseUnit: z.enum(['g', 'ml']),
   defaultState: foodStateSchema.nullable(),
   nutrientsPer100: nutrientsSchema,
+  verificationStatus: z.enum(['verified', 'pending_review']).optional(),
+  equivalences: z.array(z.object({
+    id: z.uuid(),
+    label: z.string(),
+    baseQuantity: numOrNull,
+  })).optional(),
 });
 
 const pantryItem = z.object({
@@ -80,6 +86,22 @@ export const profileContextPayloadSchema = z.object({
     .optional(),
   catalogSummary: z.array(catalogItem),
   pantrySummary: z.array(pantryItem),
+  recipeSummary: z.array(z.object({
+    recipeId: z.uuid(),
+    name: z.string(),
+    version: z.number().int().positive(),
+    servings: z.number().positive(),
+    totalCookedWeightG: numOrNull,
+    nutrientsPerServing: nutrientsSchema,
+    prepTimeMin: numOrNull.optional(),
+    instructions: z.array(z.string()).optional(),
+    ingredients: z.array(z.object({
+      foodId: z.uuid(), name: z.string(), quantity: z.number().positive(),
+      unit: z.enum(['g', 'ml', 'unit', 'portion']), state: foodStateSchema,
+      equivalenceId: z.uuid().optional(), isOptional: z.boolean(),
+    })).optional(),
+  })).optional(),
+  aiInstructions: z.string().optional(),
 });
 
 export const profileContextSchema = envelope(SCHEMA_IDS.profileContext, profileContextPayloadSchema);

@@ -1,4 +1,4 @@
-import { ArrowLeft, BookOpen, Home, LineChart as LineChartIcon, Settings } from 'lucide-react';
+import { ArrowLeft, BookOpen, Home, LineChart as LineChartIcon, MessageCircle, Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { parseRoute, type Route } from './routes';
@@ -8,12 +8,14 @@ import { GoalsScreen } from './screens/GoalsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
-import { RecipesScreen } from './screens/RecipesScreen';
+import { PlanScreen } from './screens/PlanScreen';
+import { AiScreen } from './screens/AiScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 
 const TABS: { route: Route; label: string; icon: typeof Home }[] = [
   { route: 'inicio', label: 'Inicio', icon: Home },
   { route: 'plan', label: 'Plan', icon: BookOpen },
+  { route: 'ia', label: 'IA', icon: MessageCircle },
   { route: 'progreso', label: 'Progreso', icon: LineChartIcon },
   { route: 'config', label: 'Configuración', icon: Settings },
 ];
@@ -52,7 +54,8 @@ export function App() {
       )}
 
       {route === 'inicio' && <HomeScreen go={go} />}
-      {route === 'plan' && <RecipesScreen />}
+      {route === 'plan' && <PlanScreen go={go} />}
+      {route === 'ia' && <AiScreen go={go} />}
       {route === 'progreso' && <ProgressScreen />}
       {route === 'config' && <SettingsScreen go={go} />}
       {route === 'config/perfil' && <ProfileScreen onSaved={() => go('config/metas')} />}

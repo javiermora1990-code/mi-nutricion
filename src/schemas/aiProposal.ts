@@ -15,6 +15,7 @@ import { proposedCatalogFoodSchema } from './purchaseProposal';
 
 const recipe = z.object({
   tempId: z.string().min(1),
+  existingRecipeId: z.uuid().nullable().optional(),
   name: z.string().min(1),
   servings: z.number().positive(),
   prepTimeMin: numOrNull,
@@ -30,6 +31,7 @@ const recipe = z.object({
         unit: quantityUnitSchema,
         state: foodStateSchema,
         isOptional: z.boolean(),
+        equivalenceId: z.uuid().optional(),
       }),
     )
     .min(1),
@@ -51,6 +53,7 @@ const mealPlan = z.object({
               refId: z.string().min(1),
               quantity: z.number().positive(),
               unit: quantityUnitSchema,
+              equivalenceId: z.uuid().optional(),
             }),
           ),
         }),

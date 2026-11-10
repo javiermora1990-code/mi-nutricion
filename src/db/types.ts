@@ -142,6 +142,7 @@ export interface FoodEquivalence extends BaseRecord {
 }
 
 export interface Recipe extends BaseRecord {
+  sourceJsonId?: string;
   /** Receta raíz de la que esta es una versión; null en la primera. */
   parentRecipeId: string | null;
   version: number;
@@ -170,6 +171,8 @@ export interface RecipeIngredient extends BaseRecord {
     unitLabel: string;
     nutrients: Nutrients;
     pendingReview: boolean;
+    baseQuantity?: number;
+    baseUnit?: 'g' | 'ml';
   };
 }
 
@@ -252,6 +255,20 @@ export interface MealPlanItem {
   refId: string;
   quantity: number;
   unit: QuantityUnit;
+  equivalenceId?: string;
+  snapshot?: {
+    name: string;
+    nutrients: Nutrients;
+    ingredients: PlannedIngredient[];
+  };
+}
+
+export interface PlannedIngredient {
+  foodId: string;
+  name: string;
+  quantity: number | null;
+  unit: 'g' | 'ml' | null;
+  state: FoodState | null;
 }
 
 /** Planificar no descuenta inventario. */

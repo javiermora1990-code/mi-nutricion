@@ -1,6 +1,6 @@
 import { newBase, nowIso, type MiNutricionDB } from '../db/db';
 import type { Nutrients, Recipe, RecipeIngredient } from '../db/types';
-import { foodName, mapNutrients } from './catalog';
+import { foodName, foodQuantity, mapNutrients } from './catalog';
 
 export type IngredientInput = Pick<RecipeIngredient, 'foodId' | 'quantity' | 'unit' |
   'state' | 'equivalenceId' | 'isOptional'>;
@@ -84,26 +84,14 @@ export async function saveRecipe(
       if (food.defaultState && food.defaultState !== ingredient.state) {
         throw new Error(`Elige la ficha de ${food.name} que corresponda al estado en que lo has medido.`);
       }
-      let amountPerUnit = 1;
-      let unitLabel = quantityLabel[ingredient.unit];
-      if (ingredient.unit === 'unit' || ingredient.unit === 'portion') {
-        const equivalent = ingredient.equivalenceId ? await db.foodEquivalences.get(ingredient.equivalenceId) : undefined;
-        if (!equivalent || equivalent.deletedAt || equivalent.foodId !== food.id ||
-          equivalent.baseQuantity === null || !Number.isFinite(equivalent.baseQuantity) || equivalent.baseQuantity <= 0) {
-          throw new Error(`Elige una equivalencia vigente para ${food.name}.`);
-        }
-        amountPerUnit = equivalent.baseQuantity;
-        unitLabel = equivalent.label;
-      } else if (ingredient.unit !== food.baseUnit) {
-        throw new Error(`La cantidad de ${food.name} debe indicarse en ${food.baseUnit} o mediante una equivalencia.`);
-      }
-      const factor = (ingredient.quantity / 100) * amountPerUnit;
-      if (!Number.isFinite(factor)) throw new Error(`La cantidad de ${food.name} es demasiado grande.`);
+      const equivalent = ingredient.equivalenceId ? await db.foodEquivalences.get(ingredient.equivalenceId) : undefined;
+      const { baseQuantity, unitLabel } = foodQuantity(food, ingredient.quantity, ingredient.unit, equivalent);
       return {
         ...newBase(now), ...ingredient, recipeId: recipe.id, sortOrder,
         snapshot: {
-          name: foodName(food), unitLabel, nutrients: scaleNutrients(food.nutrientsPer100, factor),
+          name: foodName(food), unitLabel, nutrients: scaleNutrients(food.nutrientsPer100, baseQuantity / 100),
           pendingReview: food.verificationStatus === 'pending_review',
+          baseQuantity, baseUnit: food.baseUnit,
         },
       };
     }));

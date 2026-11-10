@@ -1,5 +1,5 @@
 import { newBase, nowIso, type MiNutricionDB } from '../db/db';
-import type { Food, FoodEquivalence, Nutrients } from '../db/types';
+import type { Food, FoodEquivalence, Nutrients, QuantityUnit } from '../db/types';
 import { USDA_SEED } from '../db/usdaSeed';
 
 export const NUTRIENT_LABELS: Record<keyof Nutrients, string> = {
@@ -37,6 +37,27 @@ export const FOOD_SOURCES = {
   estimate: 'Estimación',
 } satisfies Record<Food['source'], string>;
 export const STATE_LABELS = { raw: 'Crudo o seco', cooked: 'Cocinado' };
+
+export function foodQuantity(
+  food: Pick<Food, 'id' | 'name' | 'baseUnit'>, quantity: number, unit: QuantityUnit, equivalent?: FoodEquivalence,
+): { baseQuantity: number; unitLabel: string } {
+  if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`Revisa la cantidad de ${food.name}.`);
+  let amountPerUnit = 1;
+  let unitLabel: string = unit;
+  if (unit === 'unit' || unit === 'portion') {
+    if (!equivalent || equivalent.deletedAt || equivalent.foodId !== food.id ||
+      equivalent.baseQuantity === null || !Number.isFinite(equivalent.baseQuantity) || equivalent.baseQuantity <= 0) {
+      throw new Error(`Elige una equivalencia vigente para ${food.name}.`);
+    }
+    amountPerUnit = equivalent.baseQuantity;
+    unitLabel = equivalent.label;
+  } else if (unit !== food.baseUnit) {
+    throw new Error(`La cantidad de ${food.name} debe indicarse en ${food.baseUnit} o mediante una equivalencia.`);
+  }
+  const baseQuantity = quantity * amountPerUnit;
+  if (!Number.isFinite(baseQuantity)) throw new Error(`La cantidad de ${food.name} es demasiado grande.`);
+  return { baseQuantity, unitLabel };
+}
 
 export type FoodDetails = Pick<Food, 'name' | 'brand' | 'kind' | 'category' | 'baseUnit' |
   'defaultState' | 'source' | 'externalId' | 'sourceFetchedAt' | 'sourceVersion' |

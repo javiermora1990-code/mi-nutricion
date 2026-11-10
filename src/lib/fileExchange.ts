@@ -72,8 +72,10 @@ export function nextShareVariant(text: string, baseName: string): ShareVariant |
  * Si el navegador la rechaza, se anota y el siguiente toque probará la siguiente:
  * no se puede reintentar en el mismo toque porque el gesto del usuario ya se ha consumido.
  */
-export async function shareText(text: string, baseName: string): Promise<ShareOutcome> {
-  const variant = nextShareVariant(text, baseName);
+export async function shareText(text: string, baseName: string, variantId?: ShareVariant['id']): Promise<ShareOutcome> {
+  const variant = variantId
+    ? shareVariants(baseName).find((v) => v.id === variantId && canShareVariant(text, v))
+    : nextShareVariant(text, baseName);
   if (!variant) return { status: 'unsupported' };
   try {
     // El título es el propio nombre del archivo: Drive en Android usa el título
