@@ -1,16 +1,19 @@
-import { ArrowLeft, Home, LineChart as LineChartIcon, Settings } from 'lucide-react';
+import { ArrowLeft, BookOpen, Home, LineChart as LineChartIcon, Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 import { parseRoute, type Route } from './routes';
+import { CatalogScreen } from './screens/CatalogScreen';
 import { DriveTestScreen } from './screens/DriveTestScreen';
 import { GoalsScreen } from './screens/GoalsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
+import { RecipesScreen } from './screens/RecipesScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 
 const TABS: { route: Route; label: string; icon: typeof Home }[] = [
   { route: 'inicio', label: 'Inicio', icon: Home },
+  { route: 'plan', label: 'Plan', icon: BookOpen },
   { route: 'progreso', label: 'Progreso', icon: LineChartIcon },
   { route: 'config', label: 'Configuración', icon: Settings },
 ];
@@ -49,10 +52,12 @@ export function App() {
       )}
 
       {route === 'inicio' && <HomeScreen go={go} />}
+      {route === 'plan' && <RecipesScreen />}
       {route === 'progreso' && <ProgressScreen />}
       {route === 'config' && <SettingsScreen go={go} />}
       {route === 'config/perfil' && <ProfileScreen onSaved={() => go('config/metas')} />}
       {route === 'config/metas' && <GoalsScreen onEditProfile={() => go('config/perfil')} />}
+      {route === 'config/catalogo' && <CatalogScreen />}
       {route === 'config/drive' && (
         <div className="pb-12">
           <DriveTestScreen offlineReady={offlineReady} />

@@ -1,10 +1,12 @@
 import { ChevronRight } from 'lucide-react';
 import { APP_STAGE, APP_VERSION, type Route } from '../routes';
 import { Card, Screen } from '../ui/kit';
+import { CatalogAttribution } from './CatalogScreen';
 
 const ITEMS: { route: Route; title: string; detail: string }[] = [
   { route: 'config/perfil', title: 'Perfil y actividad', detail: 'Datos básicos y cuestionario de actividad' },
   { route: 'config/metas', title: 'Metas', detail: 'Calcular, aprobar y consultar el historial' },
+  { route: 'config/catalogo', title: 'Catálogo', detail: 'Buscar, añadir y editar alimentos' },
   { route: 'config/drive', title: 'Prueba de Drive', detail: 'Diagnóstico e importación/exportación de JSON (Etapa 1)' },
 ];
 
@@ -26,6 +28,7 @@ export function SettingsScreen({ go }: { go: (route: Route) => void }) {
           ))}
         </ul>
       </Card>
+      <Card title="Fuentes de datos"><CatalogAttribution /></Card>
       <p className="text-center text-xs text-stone-500">
         Mi Nutrición {APP_VERSION} · {APP_STAGE} · Los datos se guardan solo en este dispositivo.
       </p>

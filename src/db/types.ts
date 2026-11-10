@@ -163,6 +163,14 @@ export interface RecipeIngredient extends BaseRecord {
   state: FoodState;
   isOptional: boolean;
   sortOrder: number;
+  equivalenceId?: string;
+  /** Instantánea de la cantidad original. Las versiones previas pueden carecer de ella. */
+  snapshot?: {
+    name: string;
+    unitLabel: string;
+    nutrients: Nutrients;
+    pendingReview: boolean;
+  };
 }
 
 // ───────────── Bloque 3 — Compras y despensa ─────────────
