@@ -20,6 +20,7 @@ export const profileInputSchema = z
     dailyStepsBand: z.enum(STEPS_BANDS),
     trainingDaysPerWeek: z.number().int().min(0).max(7),
     trainingType: z.enum(TRAINING_TYPES),
+    mealRoutine: z.string().trim().max(500).nullable().optional(),
   })
   .refine((p) => p.birthDate !== null || p.ageYears !== null, {
     message: 'Indica la edad o la fecha de nacimiento.',

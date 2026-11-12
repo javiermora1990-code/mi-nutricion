@@ -2,9 +2,10 @@ import type { MiNutricionDB } from '../db/db';
 import type { Food, IsoDate, NutritionGoal, Objective, Profile } from '../db/types';
 import { formatShortDate, localIsoDate } from './dates';
 import { getActiveGoal, getCurrentProfile, getCurrentWeight, profileAge } from './profileGoals';
+import { loadWeeklySummary, type WeeklySummary } from './weeklySummary';
 
 export type PreviewTone = 'ok' | 'warn' | 'block';
-export type PreviewKey = 'profile' | 'goals' | 'catalog';
+export type PreviewKey = 'profile' | 'goals' | 'diary' | 'catalog';
 
 /** Una fila de la vista previa del contexto: resumen en una línea y detalle desplegable. */
 export interface ContextPreviewRow {
@@ -18,10 +19,12 @@ export interface ContextPreviewRow {
 }
 
 export interface ContextPreviewInput {
-  profile: Pick<Profile, 'sex' | 'heightCm' | 'trainingDaysPerWeek'> | null;
+  profile: Pick<Profile, 'sex' | 'heightCm' | 'trainingDaysPerWeek' | 'mealRoutine'> | null;
   ageYears: number | null;
   weight: { weightKg: number; date: IsoDate } | null;
   goal: Pick<NutritionGoal, 'objective' | 'targets'> | null;
+  /** Opcional: sin registros no se envía ni se muestra. */
+  weeklySummary?: WeeklySummary | null;
   foods: Pick<Food, 'name' | 'brand' | 'nutrientsPer100' | 'verificationStatus' | 'deletedAt'>[];
 }
 
@@ -43,7 +46,8 @@ export function buildContextPreview(input: ContextPreviewInput): ContextPreviewR
     });
   } else {
     rows.push({
-      key: 'profile', label: 'Perfil', tone: 'ok', note: null, details: [],
+      key: 'profile', label: 'Perfil', tone: 'ok', note: null,
+      details: profile.mealRoutine ? [`Horarios: ${profile.mealRoutine}`] : [],
       summary: [
         profile.sex === 'female' ? 'Mujer' : 'Hombre', `${fmt(input.ageYears)} años`, `${fmt(profile.heightCm)} cm`,
         `${fmt(weight.weightKg, 1)} kg (${formatShortDate(weight.date)})`,
@@ -72,6 +76,28 @@ export function buildContextPreview(input: ContextPreviewInput): ContextPreviewR
     });
   }
 
+  const summary = input.weeklySummary;
+  if (summary) {
+    const daysWithData = summary.weeks.reduce((total, week) => total + week.loggedDays, 0);
+    rows.push({
+      key: 'diary', label: 'Últimas semanas', tone: 'ok', note: null,
+      summary: `${plural(summary.weeks.length, 'semana', 'semanas')} · ${plural(daysWithData, 'día anotado', 'días anotados')}`,
+      details: [
+        ...summary.weeks.map((week) => [
+          `Semana del ${formatShortDate(week.weekStart)}`,
+          week.evaluableDays ? `${fmt(week.evaluableDays)}/7 días` : 'sin días evaluables',
+          week.avgEnergyKcal !== null ? `${fmt(week.avgEnergyKcal)} kcal` : null,
+          week.avgProteinG !== null ? `proteína ${fmt(week.avgProteinG)} g` : null,
+          week.avgWeightKg !== null ? `${fmt(week.avgWeightKg, 1)} kg` : null,
+          week.plannedMealsOnLoggedDays ? `menú seguido ${fmt(week.plannedMealsLogged)}/${fmt(week.plannedMealsOnLoggedDays)}` : null,
+        ].filter(Boolean).join(' · ')),
+        ...(summary.frequentRecipes.length
+          ? [`Repites: ${summary.frequentRecipes.map((r) => `${r.name} (${fmt(r.times)})`).join(', ')}`] : []),
+        ...(summary.plannedButNotLogged.length ? [`Planificadas sin anotar: ${summary.plannedButNotLogged.join(', ')}`] : []),
+      ],
+    });
+  }
+
   const foods = input.foods.filter((food) => !food.deletedAt);
   const missing = foods.filter((food) => MAIN_NUTRIENTS.some((key) => food.nutrientsPer100[key] === null));
   const pending = foods.filter((food) => food.verificationStatus === 'pending_review');
@@ -93,8 +119,8 @@ export const canExportContext = (rows: ContextPreviewRow[]) => !rows.some((row) 
 /** Lee perfil, metas y catálogo con los mismos criterios que `createProfileContext`, sin escribir nada. */
 export async function loadContextPreview(db: MiNutricionDB, date = new Date()): Promise<ContextPreviewRow[]> {
   const today = localIsoDate(date);
-  const [profile, weight, goal, foods] = await Promise.all([
-    getCurrentProfile(db), getCurrentWeight(db), getActiveGoal(db), db.foods.toArray(),
+  const [profile, weight, goal, foods, weeklySummary] = await Promise.all([
+    getCurrentProfile(db), getCurrentWeight(db), getActiveGoal(db), db.foods.toArray(), loadWeeklySummary(db, date),
   ]);
-  return buildContextPreview({ profile, ageYears: profile ? profileAge(profile, today) : null, weight, goal, foods });
+  return buildContextPreview({ profile, ageYears: profile ? profileAge(profile, today) : null, weight, goal, foods, weeklySummary });
 }

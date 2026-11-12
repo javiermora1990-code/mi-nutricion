@@ -17,6 +17,7 @@ interface FormState {
   dailyStepsBand: StepsBand | null;
   trainingDaysPerWeek: number | null;
   trainingType: TrainingType | null;
+  mealRoutine: string;
 }
 
 const EMPTY: FormState = {
@@ -30,6 +31,7 @@ const EMPTY: FormState = {
   dailyStepsBand: null,
   trainingDaysPerWeek: null,
   trainingType: null,
+  mealRoutine: '',
 };
 
 const REQUIRED = 'Falta este dato.';
@@ -54,6 +56,7 @@ export function ProfileScreen({ onSaved }: { onSaved: () => void }) {
       dailyStepsBand: current.dailyStepsBand as StepsBand,
       trainingDaysPerWeek: current.trainingDaysPerWeek,
       trainingType: current.trainingType as TrainingType,
+      mealRoutine: current.mealRoutine ?? '',
     });
   }, [current, loadedVersion]);
 
@@ -84,6 +87,7 @@ export function ProfileScreen({ onSaved }: { onSaved: () => void }) {
       dailyStepsBand: form.dailyStepsBand,
       trainingDaysPerWeek: days,
       trainingType,
+      mealRoutine: form.mealRoutine.trim() || null,
     });
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
@@ -196,6 +200,21 @@ export function ProfileScreen({ onSaved }: { onSaved: () => void }) {
             error={errors.trainingType}
           />
         )}
+      </Card>
+
+      <Card title="Horarios y rutina (opcional)">
+        <Field
+          label="Cómo y cuándo sueles comer"
+          hint="Se envía a la IA para repartir el menú. Por ejemplo: desayuno a las 7:30, como en la oficina con táper, ceno tarde."
+          error={errors.mealRoutine}
+        >
+          <textarea
+            className={`${inputClass} min-h-24 py-2`}
+            maxLength={500}
+            value={form.mealRoutine}
+            onChange={(event) => set('mealRoutine', event.target.value)}
+          />
+        </Field>
       </Card>
 
       {Object.keys(errors).length > 0 && <Notice tone="error">Revisa los campos marcados antes de guardar.</Notice>}

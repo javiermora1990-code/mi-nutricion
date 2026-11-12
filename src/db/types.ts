@@ -82,6 +82,8 @@ export interface Profile extends BaseRecord {
   dailyStepsBand: string;
   trainingDaysPerWeek: number;
   trainingType: string;
+  /** Horarios y rutina de comidas en texto libre. Ausente en perfiles antiguos. */
+  mealRoutine?: string | null;
 }
 
 export interface NutritionGoal extends BaseRecord {

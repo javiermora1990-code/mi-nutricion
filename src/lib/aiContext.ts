@@ -7,6 +7,7 @@ import { localIsoDate } from './dates';
 import { getActiveGoal, getCurrentProfile, getCurrentWeight, profileAge } from './profileGoals';
 import { latestRecipes, nutrientsPerServing } from './recipes';
 import { seedCatalog } from './catalog';
+import { loadWeeklySummary } from './weeklySummary';
 
 export function exchangeBaseName(type: 'contexto' | 'recetas' | 'plan' | 'propuesta', id: string, date = new Date()): string {
   const time = [date.getHours(), date.getMinutes(), date.getSeconds()].map((n) => String(n).padStart(2, '0')).join('-');
@@ -18,6 +19,8 @@ export function aiInstructions(contextId: string): string {
     'Ayúdame a preparar recetas y un menú adaptados al contexto adjunto de Mi Nutrición.',
     'Primero pregúntame la semana, personas, comidas que quiero planificar, gustos, alergias, alimentos que evito, tiempo y presupuesto si no te los he indicado. No supongas estas preferencias.',
     'Trabajaremos conversando. Presenta las propuestas en español de España. Genera el archivo final solo cuando te confirme que me encaja.',
+    'Si el perfil trae mealRoutine, respeta esos horarios y esa rutina al repartir las comidas.',
+    'weeklySummary, si existe, resume como mucho mis últimas 4 semanas: medias diarias de los días evaluables (evaluableDays), peso medio y cuántas tomas planificadas llegué a anotar. Úsalo para ajustar el menú, pero no saques conclusiones de semanas con pocos días evaluables. Que falte weeklySummary o un día sin registros no significa que no comiera.',
     'Usa mis metas aprobadas de activeTargets. Sus límites minTolerance y maxTolerance son valores absolutos. Si faltan metas, pregúntame el criterio antes de afirmar que el menú las cumple.',
     'Utiliza foodId del catalogSummary y el estado raw/cooked de la ficha elegida. Usa cantidades en su baseUnit g o ml. Para unidades caseras incluye el equivalenceId exacto del contexto.',
     'Reutiliza recetas de recipeSummary mediante recipeId. Para una nueva receta usa un tempId único en el documento. Para revisar una receta existente indica existingRecipeId de su última versión y una receta completa.',
@@ -44,6 +47,7 @@ export async function createProfileContext(db: MiNutricionDB, date = new Date())
   return db.transaction('r', [
     db.profiles, db.progressLogs, db.nutritionGoals, db.foods,
     db.foodEquivalences, db.recipes, db.recipeIngredients, db.inventoryBatches,
+    db.diaryEntries, db.diaryDays, db.mealPlans,
   ], async () => {
       const [profile, weight, active, foods, equivalents, recipes, ingredients, batches] = await Promise.all([
         getCurrentProfile(db), getCurrentWeight(db), getActiveGoal(db),
@@ -52,6 +56,7 @@ export async function createProfileContext(db: MiNutricionDB, date = new Date())
         db.recipes.toArray(), db.recipeIngredients.filter((i) => !i.deletedAt).toArray(),
         db.inventoryBatches.filter((batch) => !batch.deletedAt && batch.status === 'available' && batch.remainingQuantity > 0).toArray(),
       ]);
+      const weeklySummary = await loadWeeklySummary(db, date);
       if (!profile || !weight) throw new Error('Completa primero tu perfil en Configuración.');
       const ageYears = profileAge(profile, today);
       if (ageYears === null) throw new Error('Completa tu edad en el perfil.');
@@ -79,6 +84,7 @@ export async function createProfileContext(db: MiNutricionDB, date = new Date())
             heightCm: profile.heightCm, weightKg: weight.weightKg, weightDeclaredOn: weight.date,
             isNatural: profile.isNatural, workType: profile.workType, dailyStepsBand: profile.dailyStepsBand,
             trainingDaysPerWeek: profile.trainingDaysPerWeek, trainingType: profile.trainingType,
+            ...(profile.mealRoutine ? { mealRoutine: profile.mealRoutine } : {}),
           },
           activeGoal: active ? {
             id: active.id, version: active.version, objective: active.objective,
@@ -87,6 +93,7 @@ export async function createProfileContext(db: MiNutricionDB, date = new Date())
             estimatedTdeeKcal: active.estimatedTdeeKcal, approvedAt: active.approvedAt,
           } : null,
           activeTargets: active?.targets ?? null,
+          ...(weeklySummary ? { weeklySummary } : {}),
           catalogSummary: foods.map((food) => ({
             foodId: food.id, name: food.name, brand: food.brand, kind: food.kind, baseUnit: food.baseUnit,
             defaultState: food.defaultState, nutrientsPer100: food.nutrientsPer100, verificationStatus: food.verificationStatus,

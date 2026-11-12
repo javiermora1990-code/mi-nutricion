@@ -67,6 +67,10 @@ describe('Contexto real e instrucciones', () => {
     const first = await createProfileContext(db, date);
     expect(first.payload.profile).toMatchObject({ weightKg: 64.5, weightDeclaredOn: '2026-01-10', ageYears: 35 });
     expect(first.payload.activeGoal).toBeNull();
+    expect(first.payload.profile.mealRoutine).toBeUndefined();
+    expect(first.payload.weeklySummary?.weeks).toEqual([expect.objectContaining({
+      weekStart: '2026-01-05', loggedDays: 0, avgWeightKg: 64.5, avgEnergyKcal: null,
+    })]);
     expect(first.payload.catalogSummary).toHaveLength(119);
     expect(first.payload.catalogSummary.find((item) => item.foodId === food.id)?.nutrientsPer100.fiberG).toBeNull();
     expect(first.payload.aiInstructions).toContain(first.id);
@@ -79,6 +83,14 @@ describe('Contexto real e instrucciones', () => {
     expect(second.id).not.toBe(first.id);
     expect(DB_SCHEMA_VERSION).toBe(1);
     expect(await db.aiExchangeLog.count()).toBe(0);
+  });
+
+  it('envía los horarios del perfil y omite el resumen semanal si no hay registros', async () => {
+    await saveProfileVersion(db, { ...profileInput, mealRoutine: 'Como en la oficina' }, '2026-01-01');
+    const context = await createProfileContext(db, date);
+    expect(context.payload.profile.mealRoutine).toBe('Como en la oficina');
+    expect(context.payload.weeklySummary).toBeUndefined();
+    expect(context.payload.aiInstructions).toContain('weeklySummary');
   });
 
   it('agrupa existencias por alimento y unidad conservando la primera caducidad', async () => {

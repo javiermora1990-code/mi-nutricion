@@ -25,6 +25,8 @@ const profile = z.object({
   dailyStepsBand: z.string(),
   trainingDaysPerWeek: z.number().int().min(0).max(7),
   trainingType: z.string(),
+  /** Horarios y rutina de comidas, en texto libre. */
+  mealRoutine: strOrNull.optional(),
 });
 
 const activeGoal = z.object({
@@ -50,6 +52,25 @@ const trendWindow = z.object({
   avgSleepHours: numOrNull,
   avgEnergyLevel1to5: numOrNull,
   avgHungerLevel1to5: numOrNull,
+});
+
+/** Resumen breve de las últimas semanas del diario (como mucho 4 semanas). */
+const weeklySummary = z.object({
+  weeks: z.array(z.object({
+    weekStart: isoDate,
+    loggedDays: z.number().int().min(0).max(7),
+    evaluableDays: z.number().int().min(0).max(7),
+    avgEnergyKcal: numOrNull,
+    avgProteinG: numOrNull,
+    avgCarbsG: numOrNull,
+    avgFatG: numOrNull,
+    avgFiberG: numOrNull,
+    avgWeightKg: numOrNull,
+    plannedMealsOnLoggedDays: z.number().int().nonnegative(),
+    plannedMealsLogged: z.number().int().nonnegative(),
+  })).max(4),
+  frequentRecipes: z.array(z.object({ name: z.string(), times: z.number().int().positive() })).max(3),
+  plannedButNotLogged: z.array(z.string()).max(3),
 });
 
 const catalogItem = z.object({
@@ -84,6 +105,8 @@ export const profileContextPayloadSchema = z.object({
   recentTrends: z
     .object({ last7Days: trendWindow.optional(), last14Days: trendWindow.optional() })
     .optional(),
+  /** Solo aparece si hay registros en las últimas semanas. */
+  weeklySummary: weeklySummary.optional(),
   catalogSummary: z.array(catalogItem),
   pantrySummary: z.array(pantryItem),
   recipeSummary: z.array(z.object({

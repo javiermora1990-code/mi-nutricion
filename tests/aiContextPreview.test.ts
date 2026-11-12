@@ -42,4 +42,26 @@ describe('Vista previa del contexto para la IA', () => {
     expect(map.goals).toMatchObject({ tone: 'warn', summary: 'Sin metas aprobadas' });
     expect(canExportContext(rows)).toBe(false);
   });
+
+  it('muestra horarios y últimas semanas solo cuando hay datos', () => {
+    expect(byKey(complete).diary).toBeUndefined();
+    const rows = byKey({
+      ...complete,
+      profile: { ...complete.profile!, mealRoutine: 'Desayuno a las 8' },
+      weeklySummary: {
+        weeks: [{
+          weekStart: '2026-11-09', loggedDays: 3, evaluableDays: 2, avgEnergyKcal: 1900, avgProteinG: 110,
+          avgCarbsG: null, avgFatG: null, avgFiberG: null, avgWeightKg: 63.1, plannedMealsOnLoggedDays: 4, plannedMealsLogged: 3,
+        }],
+        frequentRecipes: [{ name: 'Lentejas ficticias', times: 2 }],
+        plannedButNotLogged: [],
+      },
+    });
+    expect(rows.profile.details).toEqual(['Horarios: Desayuno a las 8']);
+    expect(rows.diary).toMatchObject({ summary: '1 semana · 3 días anotados' });
+    expect(rows.diary.details).toEqual([
+      'Semana del 9 nov · 2/7 días · 1900 kcal · proteína 110 g · 63,1 kg · menú seguido 3/4',
+      'Repites: Lentejas ficticias (2)',
+    ]);
+  });
 });
