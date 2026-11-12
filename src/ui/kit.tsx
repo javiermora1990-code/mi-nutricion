@@ -113,6 +113,9 @@ const nf0 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 });
 
+/** «1 ración», «1,5 raciones», «2 raciones». */
+export const servingsText = (n: number | null | undefined) => `${fmt(n, 2)} ${n === 1 ? 'ración' : 'raciones'}`;
+
 /** Formatea un número o muestra «Sin dato» si es null. */
 export function fmt(n: number | null | undefined, decimals: 0 | 1 | 2 = 0): string {
   if (n === null || n === undefined) return 'Sin dato';

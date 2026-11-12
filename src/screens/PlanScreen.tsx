@@ -1,18 +1,26 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { NutrientList } from '../components/NutrientList';
 import { db } from '../db/db';
 import { STATE_LABELS } from '../lib/catalog';
 import { addDays, formatLongDate, formatShortDate, localIsoDate, startOfWeek } from '../lib/dates';
-import { MEAL_LABELS, MEAL_SLOTS, planNutrients, shoppingList } from '../lib/planning';
+import { MEAL_LABELS, MEAL_SLOTS, nextPlannedDate, planItemName, planNutrients, shoppingList } from '../lib/planning';
 import { quantityLabel } from '../lib/recipes';
 import type { Route } from '../routes';
-import { btnPrimary, btnSecondary, Card, Field, fmt, inputClass, Notice, Screen } from '../ui/kit';
+import { btnPrimary, btnSecondary, Card, fmt, Notice, Screen, servingsText } from '../ui/kit';
 import { RecipesScreen } from './RecipesScreen';
 
 export function PlanScreen({ go }: { go: (route: Route) => void }) {
   const [view, setView] = useState<'menu' | 'recipes' | 'shopping'>('menu');
-  const [week, setWeek] = useState(() => startOfWeek(localIsoDate()));
+  // Sin elección del usuario, se abre la semana actual o, si está vacía, la del próximo menú.
+  const initialWeek = useLiveQuery(async () => {
+    const thisWeek = startOfWeek(localIsoDate());
+    const next = await nextPlannedDate(db, thisWeek);
+    return next ? startOfWeek(next) : thisWeek;
+  }, []);
+  const [chosenWeek, setWeek] = useState<string>();
+  const week = chosenWeek ?? initialWeek ?? startOfWeek(localIsoDate());
   const query = useLiveQuery(async () => ({
     week, plans: await db.mealPlans.where('date').between(week, addDays(week, 6), true, true)
       .and((plan) => !plan.deletedAt).toArray(),
@@ -27,23 +35,19 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
           aria-pressed={view === tab.id} onClick={() => setView(tab.id)}>{tab.label}</button>)}
     </div>
   );
+  if (view !== 'recipes' && !chosenWeek && initialWeek === undefined) return <Screen title="Plan" subtitle="Organiza las comidas de tu semana">{tabs}</Screen>;
   if (view === 'recipes') return <><div className="mx-auto max-w-xl px-4 pt-4">{tabs}</div><RecipesScreen /></>;
   return (
     <Screen title="Plan" subtitle="Organiza las comidas de tu semana">
       {tabs}
-      <Field label="Semana">
-        <input className={inputClass} type="date" value={week} onChange={(event) => {
-          if (event.target.value) { setWeek(startOfWeek(event.target.value)); setChecked(new Set()); }
-        }} />
-      </Field>
-      <div className="flex items-center justify-between gap-2">
-        <button className={btnSecondary} onClick={() => { setWeek(addDays(week, -7)); setChecked(new Set()); }}>Anterior</button>
-        <p className="text-center text-sm">{formatShortDate(week)} – {formatShortDate(addDays(week, 6))}</p>
-        <button className={btnSecondary} onClick={() => { setWeek(addDays(week, 7)); setChecked(new Set()); }}>Siguiente</button>
-      </div>
-      <button className={btnPrimary} onClick={() => go('ia')}>Preparar o importar con la IA</button>
+      <WeekNavigator week={week} onChange={(next) => { setWeek(next); setChecked(new Set()); }} />
       {!plans && <p className="text-sm">Cargando menú…</p>}
-      {plans && !plans.length && <Notice tone="info">Todavía no hay un menú para esta semana. Importa una propuesta de la IA para verlo aquí.</Notice>}
+      {plans && !plans.length && (
+        <Card>
+          <p className="text-sm text-stone-700">Todavía no hay un menú para esta semana.</p>
+          <button className={btnPrimary} onClick={() => go('ia')}>Preparar o importar con la IA</button>
+        </Card>
+      )}
       {view === 'shopping' ? (
         <>
           <Notice tone="info">Necesidades de ingredientes del menú. Podrás contrastarlas con tu despensa al incorporar ese módulo.</Notice>
@@ -82,7 +86,7 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
               <div key={plan.id} className="text-sm">
                 <h3 className="font-medium">{MEAL_LABELS[slot]}</h3>
                 <ul className="space-y-1">
-                  {plan.items.map((item, i) => <li key={i}>{item.snapshot?.name ?? 'Elemento guardado'} · {fmt(item.quantity, 2)} {item.itemType === 'recipe' && item.unit === 'portion' ? 'raciones' : quantityLabel[item.unit]}</li>)}
+                  {plan.items.map((item, i) => <li key={i}>{planItemName(item)} · {item.itemType === 'recipe' && item.unit === 'portion' ? servingsText(item.quantity) : `${fmt(item.quantity, 2)} ${quantityLabel[item.unit]}`}</li>)}
                 </ul>
                 {!plan.items.length && <p className="text-stone-500">Toma vacía</p>}
               </div>
@@ -95,5 +99,25 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
         );
       })}
     </Screen>
+  );
+}
+
+/** Semana mostrada con flechas a los lados; fuera de la semana actual ofrece volver a ella. */
+function WeekNavigator({ week, onChange }: { week: string; onChange: (week: string) => void }) {
+  const current = startOfWeek(localIsoDate());
+  const offset = Math.round((Date.parse(week) - Date.parse(current)) / (7 * 86_400_000));
+  const relative = offset === 0 ? 'Esta semana' : offset === 1 ? 'La semana que viene' : offset === -1 ? 'La semana pasada' : null;
+  const arrow = 'inline-flex size-12 shrink-0 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-800 hover:bg-stone-100';
+  return (
+    <div className="flex items-center gap-2">
+      <button className={arrow} aria-label="Semana anterior" onClick={() => onChange(addDays(week, -7))}><ChevronLeft size={22} aria-hidden /></button>
+      <div className="min-w-0 flex-1 text-center">
+        <p className="font-semibold text-stone-900">{formatShortDate(week)} – {formatShortDate(addDays(week, 6))}</p>
+        {relative
+          ? <p className="text-xs text-stone-600">{relative}</p>
+          : <button className="text-xs font-medium text-emerald-800 underline" onClick={() => onChange(current)}>Volver a esta semana</button>}
+      </div>
+      <button className={arrow} aria-label="Semana siguiente" onClick={() => onChange(addDays(week, 7))}><ChevronRight size={22} aria-hidden /></button>
+    </div>
   );
 }

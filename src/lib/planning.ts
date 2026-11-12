@@ -101,3 +101,22 @@ export function shoppingList(plans: MealPlan[]): { items: ShoppingItem[]; incomp
   }
   return { items: [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name, 'es-ES')), incomplete };
 }
+
+/** Primera fecha desde `from` (incluida) con alguna toma planificada, o `null` si no hay ninguna. */
+export async function nextPlannedDate(db: MiNutricionDB, from: string): Promise<string | null> {
+  const plans = await db.mealPlans.where('date').aboveOrEqual(from).and((plan) => !plan.deletedAt).sortBy('date');
+  return plans[0]?.date ?? null;
+}
+
+/** Tomas de un día ordenadas como en el menú (desayuno → otra toma). */
+export function sortByMealSlot(plans: MealPlan[]): MealPlan[] {
+  return [...plans].sort((a, b) => MEAL_SLOTS.indexOf(a.mealSlot) - MEAL_SLOTS.indexOf(b.mealSlot));
+}
+
+/**
+ * Nombre de una toma para mostrar. La instantánea guarda «Receta · vN»; la primera versión
+ * no aporta nada al usuario, así que se oculta (las posteriores sí se muestran).
+ */
+export function planItemName(item: MealPlanItem): string {
+  return item.snapshot?.name.replace(/ · v1$/, '') ?? 'Elemento guardado';
+}

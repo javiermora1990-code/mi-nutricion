@@ -43,6 +43,50 @@ export function previewRecipeNutrients(
   });
 }
 
+export interface ProposalIssues {
+  /** Avisos por alimento nuevo (mismo índice que `catalogItems`). No impiden guardar. */
+  foods: string[][];
+  /** Problemas por receta (mismo índice que `recipes`) que hay que corregir antes de guardar. */
+  recipes: string[][];
+  /** Problemas por día del menú (mismo índice que `mealPlan.days`). */
+  days: string[][];
+  total: number;
+}
+
+/** Lista lo que el usuario debe mirar en la revisión, para no obligarle a recorrer cada campo. */
+export function proposalIssues(document: AiProposalDocument, foods: Food[], recipes: { id: string }[]): ProposalIssues {
+  const payload = document.payload;
+  const proposed = payload.catalogItems ?? [];
+  const known = new Map<string, { defaultState?: Food['defaultState'] }>(foods.map((food) => [food.id, food]));
+  proposed.forEach((food, i) => known.set(newFoodRef(i), food));
+  const foodIssues = proposed.map((food) => [
+    ...(!food.name.trim() ? ['Falta el nombre.'] : []),
+    ...(Object.values(food.nutrientsPer100).every((value) => value == null)
+      ? ['Sin nutrientes: los totales de las recetas que lo usan saldrán «Sin dato».'] : []),
+  ]);
+  const recipeIssues = (payload.recipes ?? []).map((recipe) => {
+    const issues: string[] = [];
+    if (!recipe.name.trim()) issues.push('Falta el nombre de la receta.');
+    if (!Number.isFinite(recipe.servings) || recipe.servings <= 0) issues.push('Indica un número de raciones mayor que cero.');
+    for (const ingredient of recipe.ingredients) {
+      const food = ingredient.foodId ? known.get(ingredient.foodId) : undefined;
+      if (!food) issues.push(`«${ingredient.proposedName}» no está en tu catálogo: elige un alimento.`);
+      else if (food.defaultState && food.defaultState !== ingredient.state) issues.push(`«${ingredient.proposedName}»: el estado (crudo o cocinado) no coincide con la ficha.`);
+      if (!Number.isFinite(ingredient.quantity) || ingredient.quantity <= 0) issues.push(`«${ingredient.proposedName}»: revisa la cantidad.`);
+    }
+    return issues;
+  });
+  const recipeRefs = new Set([...recipes.map((recipe) => recipe.id), ...(payload.recipes ?? []).map((recipe) => recipe.tempId)]);
+  const dayIssues = (payload.mealPlan?.days ?? []).map((day) => day.meals.flatMap((meal) => meal.items.flatMap((item) => {
+    const missing = item.itemType === 'recipe' ? !recipeRefs.has(item.refId) : !known.has(item.refId);
+    const issues = missing ? [`Una toma usa ${item.itemType === 'recipe' ? 'una receta' : 'un alimento'} que no se reconoce.`] : [];
+    if (!Number.isFinite(item.quantity) || item.quantity <= 0) issues.push('Revisa la cantidad de una toma.');
+    return issues;
+  })));
+  const total = [...recipeIssues, ...dayIssues].reduce((sum, issues) => sum + issues.length, 0);
+  return { foods: foodIssues, recipes: recipeIssues, days: dayIssues, total };
+}
+
 function validateProposal(document: AiProposalDocument): void {
   const payload = document.payload;
   if (payload.goalAdjustment) throw new Error('Esta propuesta incluye ajustes de metas. Pide a la IA un archivo solo con recetas, menú y alimentos.');
@@ -93,9 +137,13 @@ export async function prepareProposal(db: MiNutricionDB, input: unknown): Promis
     const matches = options.filter((food) => normalized(food.name) === normalized(name));
     return matches.length === 1 ? matches[0].id : null;
   }
+  // Los identificadores del catálogo son propios de cada dispositivo: si el del archivo no existe
+  // aquí (por ejemplo, el contexto se generó en otro teléfono), se intenta por nombre exacto.
   for (const recipe of document.payload.recipes ?? []) {
     for (const ingredient of recipe.ingredients) {
-      if (!ingredient.foodId) ingredient.foodId = findFood(ingredient.proposedName);
+      if (!ingredient.foodId || !options.some((food) => food.id === ingredient.foodId)) {
+        ingredient.foodId = findFood(ingredient.proposedName) ?? ingredient.foodId;
+      }
     }
   }
   for (const day of document.payload.mealPlan?.days ?? []) {

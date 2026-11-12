@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDb, DB_SCHEMA_VERSION, newBase, type MiNutricionDB } from '../src/db/db';
 import type { Food } from '../src/db/types';
 import { createProfileContext, exchangeBaseName, logContextExport } from '../src/lib/aiContext';
-import { applyProposal, prepareProposal, previewRecipeNutrients, type ProposedRecipe } from '../src/lib/aiImport';
+import { applyProposal, prepareProposal, previewRecipeNutrients, proposalIssues, type ProposedRecipe } from '../src/lib/aiImport';
 import { mapNutrients, saveFood } from '../src/lib/catalog';
 import { shareText } from '../src/lib/fileExchange';
 import { calculateGoalProposal } from '../src/lib/goalCalculator';
@@ -171,6 +171,40 @@ describe('Revisión e importación atómica', () => {
     expect(await db.foods.get({ name: 'Nuevo alimento ficticio' })).toMatchObject({ verificationStatus: 'pending_review' });
     const [plan] = await db.mealPlans.toArray();
     expect(plan.items[0].snapshot?.nutrients.energyKcal).toBeNull();
+  });
+
+  it('resuelve por nombre un identificador de otro dispositivo y conserva el desconocido si no coincide', async () => {
+    const document = proposal();
+    document.payload.recipes![0].ingredients[0].foodId = crypto.randomUUID();
+    const review = await prepareProposal(db, document);
+    expect(review.document.payload.recipes![0].ingredients[0].foodId).toBe(food.id);
+    const other = proposal();
+    const foreignId = crypto.randomUUID();
+    other.payload.recipes![0].ingredients[0] = { ...other.payload.recipes![0].ingredients[0], foodId: foreignId, proposedName: 'Sin coincidencia' };
+    expect((await prepareProposal(db, other)).document.payload.recipes![0].ingredients[0].foodId).toBe(foreignId);
+  });
+
+  it('señala solo lo que hay que corregir y avisa de alimentos nuevos sin nutrientes', async () => {
+    const clean = proposal();
+    expect(proposalIssues(clean, [food], []).total).toBe(0);
+    const document = proposal();
+    document.payload.catalogItems = [{
+      name: 'Nuevo alimento ficticio', brand: null, kind: 'generic', baseUnit: 'g', defaultState: 'raw',
+      source: 'estimate', verificationStatus: 'pending_review', nutrientsPer100: mapNutrients(() => null),
+    }];
+    document.payload.recipes![0].ingredients.push(
+      { foodId: null, proposedName: 'Ingrediente inventado', quantity: 10, unit: 'g', state: 'raw', isOptional: false },
+      { foodId: food.id, proposedName: 'Alimento ficticio', quantity: 10, unit: 'g', state: 'cooked', isOptional: false },
+    );
+    document.payload.mealPlan!.days[0].meals[0].items.push({ itemType: 'recipe', refId: 'no-existe', quantity: 1, unit: 'portion' });
+    const issues = proposalIssues(document, [food], []);
+    expect(issues.foods[0]).toHaveLength(1);
+    expect(issues.recipes[0]).toEqual([
+      expect.stringContaining('Ingrediente inventado'),
+      expect.stringContaining('estado'),
+    ]);
+    expect(issues.days[0]).toHaveLength(1);
+    expect(issues.total).toBe(3);
   });
 
   it('revierte alimentos y recetas si falla una referencia del menú', async () => {
