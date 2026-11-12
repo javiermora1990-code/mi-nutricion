@@ -3,10 +3,10 @@ import { ArrowLeft, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
 import { db } from '../db/db';
 import type { Food, FoodEquivalence, InventoryBatch, InventoryMovement, StorageLocation } from '../db/types';
-import { foodName, searchFoods } from '../lib/catalog';
+import { FOOD_CATEGORIES, foodName, searchFoods } from '../lib/catalog';
 import { formatShortDate, localIsoDate } from '../lib/dates';
 import {
-  addBatch, adjustBatch, CREATION_NOTE, daysToExpiry, fefo, LOCATION_LABELS, LOCATIONS, MOVEMENT_LABELS, reverseOperation,
+  addBatch, adjustBatch, CREATION_NOTE, daysToExpiry, fefo, groupByCategory, LOCATION_LABELS, LOCATIONS, MOVEMENT_LABELS, reverseOperation,
   reversibleOperations, takeOut,
 } from '../lib/inventory';
 import { btnDanger, btnPrimary, btnSecondary, Card, Choice, Field, fmt, inputClass, Notice, parseNumber, Screen } from '../ui/kit';
@@ -32,6 +32,7 @@ export function PantryScreen() {
   const today = localIsoDate();
   const [mode, setMode] = useState<'list' | 'add' | { batchId: string }>('list');
   const [message, setMessage] = useState('');
+  const [place, setPlace] = useState<StorageLocation | 'all'>('all');
   const data = useLiveQuery(async () => ({
     batches: fefo((await db.inventoryBatches.where('status').equals('available').toArray()).filter((b) => !b.deletedAt)),
     foods: await db.foods.filter((food) => !food.deletedAt).toArray(),
@@ -50,6 +51,7 @@ export function PantryScreen() {
   }
 
   const expiring = data.batches.filter((batch) => (daysToExpiry(batch.expiryDate, today) ?? 99) <= 3);
+  const visible = place === 'all' ? data.batches : data.batches.filter((batch) => batch.location === place);
   return (
     <Screen title="Despensa" subtitle="Lo que tienes en casa. La lista de compra lo descuenta.">
       {message && <Notice tone="ok">{message}</Notice>}
@@ -70,31 +72,53 @@ export function PantryScreen() {
           </p>
         </Card>
       )}
-      {LOCATIONS.map((location) => {
-        const batches = data.batches.filter((batch) => batch.location === location);
-        if (!batches.length) return null;
-        return (
-          <Card key={location} title={`${LOCATION_LABELS[location]} · ${fmt(batches.length)}`}>
-            <ul className="-my-2 divide-y divide-stone-100">
-              {batches.map((batch) => {
-                const food = foodById.get(batch.foodId);
-                const expiry = expiryText(batch, today);
-                return (
-                  <li key={batch.id}>
-                    <button className="flex min-h-12 w-full items-center gap-3 py-2 text-left" onClick={() => { setMessage(''); setMode({ batchId: batch.id }); }}>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm text-stone-900">{food ? foodName(food) : 'Alimento no disponible'}</span>
-                        {expiry && <span className={`block text-xs ${expiry.tone}`}>{expiry.text}</span>}
-                      </span>
-                      <span className="shrink-0 text-sm font-medium tabular-nums">{amountText(batch.remainingQuantity, batch.unit)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
-        );
-      })}
+      {!!data.batches.length && (
+        <div className="grid grid-cols-4 gap-1 rounded-xl bg-stone-200/70 p-1" role="group" aria-label="Filtrar por ubicación">
+          {(['all', ...LOCATIONS] as const).map((option) => {
+            const count = option === 'all' ? data.batches.length : data.batches.filter((b) => b.location === option).length;
+            return (
+              <button key={option} aria-pressed={place === option} onClick={() => setPlace(option)}
+                className={`flex min-h-11 flex-col items-center justify-center rounded-lg px-1 text-xs font-medium ${place === option ? 'bg-white text-emerald-800 shadow-sm' : 'text-stone-700'}`}>
+                <span>{option === 'all' ? 'Todo' : LOCATION_LABELS[option]}</span>
+                <span className="text-[11px] font-normal text-stone-500">{fmt(count)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!!data.batches.length && !visible.length && <p className="text-sm text-stone-600">No tienes nada guardado en {LOCATION_LABELS[place as StorageLocation].toLowerCase()}.</p>}
+      {!!visible.length && (
+        <Card>
+          {groupByCategory(visible, foodById, FOOD_CATEGORIES).map(({ category, batches }) => (
+            <section key={category}>
+              <h2 className="border-b border-stone-200 pb-1 text-xs font-semibold tracking-wide text-emerald-800 uppercase">{category}</h2>
+              <ul className="divide-y divide-stone-100">
+                {batches.map((batch) => {
+                  const food = foodById.get(batch.foodId);
+                  const expiry = expiryText(batch, today);
+                  return (
+                    <li key={batch.id}>
+                      <button className="flex min-h-12 w-full items-center gap-3 py-2 text-left" onClick={() => { setMessage(''); setMode({ batchId: batch.id }); }}>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-stone-900">{food ? foodName(food) : 'Alimento no disponible'}</span>
+                          {(place === 'all' || expiry) && (
+                            <span className="block text-xs text-stone-500">
+                              {place === 'all' && LOCATION_LABELS[batch.location]}
+                              {place === 'all' && expiry && ' · '}
+                              {expiry && <span className={expiry.tone}>{expiry.text}</span>}
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-sm font-medium tabular-nums">{amountText(batch.remainingQuantity, batch.unit)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </Card>
+      )}
     </Screen>
   );
 }

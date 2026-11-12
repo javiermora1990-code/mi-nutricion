@@ -1,5 +1,5 @@
 import { newBase, nowIso, type MiNutricionDB } from '../db/db';
-import type { InventoryBatch, InventoryMovement, InventoryMovementType, IsoDate, StorageLocation } from '../db/types';
+import type { Food, InventoryBatch, InventoryMovement, InventoryMovementType, IsoDate, StorageLocation } from '../db/types';
 import type { ShoppingItem } from './planning';
 
 /**
@@ -223,4 +223,32 @@ export function applyPantry(items: ShoppingItem[], batches: InventoryBatch[]): S
 export function daysToExpiry(expiryDate: IsoDate | null, today: IsoDate): number | null {
   if (!expiryDate) return null;
   return Math.round((Date.parse(expiryDate) - Date.parse(today)) / 86_400_000);
+}
+
+export const OTHER_CATEGORY = 'Otros';
+
+/**
+ * Agrupa los lotes por la categoría del alimento, en el orden del catálogo y con «Otros» al final
+ * (alimentos sin categoría, como los creados por la IA). Dentro de cada grupo: por nombre y caducidad.
+ */
+export function groupByCategory(
+  batches: InventoryBatch[], foodById: Map<string, Pick<Food, 'name' | 'category'>>, categoryOrder: string[],
+): { category: string; batches: InventoryBatch[] }[] {
+  const groups = new Map<string, InventoryBatch[]>();
+  for (const batch of batches) {
+    const category = foodById.get(batch.foodId)?.category || OTHER_CATEGORY;
+    groups.set(category, [...(groups.get(category) ?? []), batch]);
+  }
+  const rank = (category: string) => {
+    const index = categoryOrder.indexOf(category);
+    return category === OTHER_CATEGORY ? Infinity : index === -1 ? categoryOrder.length : index;
+  };
+  const name = (batch: InventoryBatch) => foodById.get(batch.foodId)?.name ?? '';
+  return [...groups.entries()]
+    .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b, 'es-ES'))
+    .map(([category, list]) => ({
+      category,
+      batches: [...list].sort((a, b) => name(a).localeCompare(name(b), 'es-ES') ||
+        (a.expiryDate ?? '9999-12-31').localeCompare(b.expiryDate ?? '9999-12-31')),
+    }));
 }

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDb, type MiNutricionDB } from '../src/db/db';
 import type { Food, InventoryBatch } from '../src/db/types';
 import { mapNutrients, saveFood } from '../src/lib/catalog';
-import { addBatch, adjustBatch, applyPantry, daysToExpiry, fefo, reverseOperation, reversibleOperations, takeOut } from '../src/lib/inventory';
+import { addBatch, adjustBatch, applyPantry, daysToExpiry, fefo, groupByCategory, reverseOperation, reversibleOperations, takeOut } from '../src/lib/inventory';
 
 let db: MiNutricionDB;
 let food: Food;
@@ -97,5 +97,19 @@ describe('Despensa · reglas adicionales', () => {
     expect(fefo([batch('b', null), batch('a', '2026-01-05')]).map((b) => b.id)).toEqual(['a', 'b']);
     expect(daysToExpiry('2026-01-05', '2026-01-03')).toBe(2);
     expect(daysToExpiry('2026-01-01', '2026-01-03')).toBe(-2);
+  });
+
+  it('agrupa por categoría en el orden del catálogo, con «Otros» al final', () => {
+    const batch = (id: string, foodId: string) => ({ id, foodId, expiryDate: null }) as InventoryBatch;
+    const foods = new Map([
+      ['manzana', { name: 'Manzana', category: 'Frutas' }],
+      ['aceite', { name: 'Aceite', category: 'Aceites' }],
+      ['pera', { name: 'Pera', category: 'Frutas' }],
+      ['salsa', { name: 'Salsa', category: null }],
+    ]);
+    const groups = groupByCategory([batch('1', 'salsa'), batch('2', 'pera'), batch('3', 'aceite'), batch('4', 'manzana')], foods, ['Frutas', 'Aceites']);
+    expect(groups.map((g) => [g.category, g.batches.map((b) => b.id)])).toEqual([
+      ['Frutas', ['4', '2']], ['Aceites', ['3']], ['Otros', ['1']],
+    ]);
   });
 });
