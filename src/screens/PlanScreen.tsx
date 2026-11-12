@@ -3,16 +3,17 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { NutrientList } from '../components/NutrientList';
 import { db } from '../db/db';
-import { STATE_LABELS } from '../lib/catalog';
 import { addDays, formatLongDate, formatShortDate, localIsoDate, startOfWeek } from '../lib/dates';
+import { applyPantry } from '../lib/inventory';
 import { MEAL_LABELS, MEAL_SLOTS, nextPlannedDate, planItemName, planNutrients, shoppingList } from '../lib/planning';
 import { quantityLabel } from '../lib/recipes';
 import type { Route } from '../routes';
 import { btnPrimary, btnSecondary, Card, fmt, Notice, Screen, servingsText } from '../ui/kit';
+import { PantryScreen } from './PantryScreen';
 import { RecipesScreen } from './RecipesScreen';
 
 export function PlanScreen({ go }: { go: (route: Route) => void }) {
-  const [view, setView] = useState<'menu' | 'recipes' | 'shopping'>('menu');
+  const [view, setView] = useState<'menu' | 'recipes' | 'shopping' | 'pantry'>('menu');
   // Sin elección del usuario, se abre la semana actual o, si está vacía, la del próximo menú.
   const initialWeek = useLiveQuery(async () => {
     const thisWeek = startOfWeek(localIsoDate());
@@ -27,19 +28,29 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
   }), [week]);
   const plans = query?.week === week ? query.plans : undefined;
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const batches = useLiveQuery(() => db.inventoryBatches.where('status').equals('available').toArray(), []);
   const list = shoppingList(plans ?? []);
+  const lines = applyPantry(list.items, batches ?? []);
+  const toBuy = lines.filter((line) => line.toBuy !== 0);
+  const covered = lines.filter((line) => line.toBuy === 0);
   const tabs = (
-    <div className="flex flex-wrap gap-2">
-      {([{ id: 'menu', label: 'Menú' }, { id: 'recipes', label: 'Recetas' }, { id: 'shopping', label: 'Lista de compra' }] as const)
-        .map((tab) => <button key={tab.id} className={view === tab.id ? btnPrimary : btnSecondary}
-          aria-pressed={view === tab.id} onClick={() => setView(tab.id)}>{tab.label}</button>)}
+    <div className="grid grid-cols-4 gap-1 rounded-xl bg-stone-200/70 p-1" role="tablist">
+      {([{ id: 'menu', label: 'Menú' }, { id: 'recipes', label: 'Recetas' }, { id: 'shopping', label: 'Compra' }, { id: 'pantry', label: 'Despensa' }] as const)
+        .map((tab) => (
+          <button key={tab.id} role="tab" aria-selected={view === tab.id} onClick={() => setView(tab.id)}
+            className={`min-h-11 rounded-lg px-1 text-sm font-medium transition ${view === tab.id ? 'bg-white text-emerald-800 shadow-sm' : 'text-stone-700'}`}>
+            {tab.label}
+          </button>
+        ))}
     </div>
   );
-  if (view !== 'recipes' && !chosenWeek && initialWeek === undefined) return <Screen title="Plan" subtitle="Organiza las comidas de tu semana">{tabs}</Screen>;
   if (view === 'recipes') return <><div className="mx-auto max-w-xl px-4 pt-4">{tabs}</div><RecipesScreen /></>;
+  if (view === 'pantry') return <><div className="mx-auto max-w-xl px-4 pt-4">{tabs}</div><PantryScreen /></>;
+  if (!chosenWeek && initialWeek === undefined) return <div className="mx-auto max-w-xl px-4 pt-4">{tabs}</div>;
   return (
-    <Screen title="Plan" subtitle="Organiza las comidas de tu semana">
-      {tabs}
+    <>
+    <div className="mx-auto max-w-xl px-4 pt-4">{tabs}</div>
+    <Screen title={view === 'shopping' ? 'Lista de compra' : 'Menú'} subtitle={view === 'shopping' ? 'Lo que falta para el menú de la semana' : 'Las comidas de tu semana'}>
       <WeekNavigator week={week} onChange={(next) => { setWeek(next); setChecked(new Set()); }} />
       {!plans && <p className="text-sm">Cargando menú…</p>}
       {plans && !plans.length && (
@@ -50,30 +61,45 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
       )}
       {view === 'shopping' ? (
         <>
-          <Notice tone="info">Necesidades de ingredientes del menú. Podrás contrastarlas con tu despensa al incorporar ese módulo.</Notice>
           {list.incomplete && <Notice tone="warn">Hay cantidades sin equivalencia conocida. Revisa esas recetas antes de comprar.</Notice>}
-          {!!list.items.length && (
-            <Card title="Ingredientes de la semana">
+          {!!toBuy.length && (
+            <Card title="Por comprar">
               <ul className="divide-y divide-stone-100">
-                {list.items.map((item) => (
+                {toBuy.map((item) => (
                   <li key={item.key}>
                     <label className="flex min-h-12 items-center gap-3 py-2 text-sm">
-                      <input type="checkbox" checked={checked.has(item.key)} onChange={(event) => {
+                      <input type="checkbox" className="size-5 shrink-0" checked={checked.has(item.key)} onChange={(event) => {
                         const next = new Set(checked);
                         if (event.target.checked) next.add(item.key);
                         else next.delete(item.key);
                         setChecked(next);
                       }} />
-                      <span className={checked.has(item.key) ? 'text-stone-500 line-through' : ''}>
-                        {item.name} · {item.quantity === null ? 'Sin dato' : `${fmt(item.quantity, 2)} ${item.unit ?? ''}`}
-                        {item.state && <span className="block text-xs text-stone-500">{STATE_LABELS[item.state]}</span>}
+                      <span className={`flex-1 ${checked.has(item.key) ? 'text-stone-500 line-through' : ''}`}>
+                        {item.name}{item.state === 'cooked' && <span className="text-stone-500"> · cocinado</span>}
+                        {item.have > 0 && <span className="block text-xs text-stone-500">Necesitas {amount(item.quantity, item.unit)} · tienes {amount(item.have, item.unit)}</span>}
                       </span>
+                      <span className="shrink-0 font-medium tabular-nums">{amount(item.toBuy, item.unit)}</span>
                     </label>
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-stone-500">Las marcas de esta vista se mantienen mientras consultas esta semana.</p>
+              <p className="text-xs text-stone-500">Las marcas se mantienen mientras consultas esta semana.</p>
             </Card>
+          )}
+          {!!covered.length && (
+            <Card title="Ya lo tienes en casa">
+              <ul className="divide-y divide-stone-100 text-sm">
+                {covered.map((item) => (
+                  <li key={item.key} className="flex justify-between gap-3 py-2 text-stone-600">
+                    <span>{item.name}{item.state === 'cooked' && ' · cocinado'}</span>
+                    <span className="shrink-0 tabular-nums">{amount(item.quantity, item.unit)}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          {!!list.items.length && (
+            <button className={btnSecondary} onClick={() => setView('pantry')}>Ver o actualizar la despensa</button>
           )}
         </>
       ) : Array.from({ length: 7 }, (_, i) => addDays(week, i)).map((date) => {
@@ -99,6 +125,7 @@ export function PlanScreen({ go }: { go: (route: Route) => void }) {
         );
       })}
     </Screen>
+    </>
   );
 }
 
@@ -120,4 +147,11 @@ function WeekNavigator({ week, onChange }: { week: string; onChange: (week: stri
       <button className={arrow} aria-label="Semana siguiente" onClick={() => onChange(addDays(week, 7))}><ChevronRight size={22} aria-hidden /></button>
     </div>
   );
+}
+
+function amount(quantity: number | null, unit: string | null): string {
+  if (quantity === null) return 'Sin dato';
+  if (unit === 'g' && quantity >= 1000) return `${fmt(quantity / 1000, 2)} kg`;
+  if (unit === 'ml' && quantity >= 1000) return `${fmt(quantity / 1000, 2)} l`;
+  return `${fmt(quantity)} ${unit ?? ''}`;
 }
