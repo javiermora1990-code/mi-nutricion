@@ -1,17 +1,18 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { z } from 'zod';
+import { ContextPreviewTable } from '../components/ContextPreviewTable';
 import { ProposalReview } from '../components/ProposalReview';
 import { db } from '../db/db';
 import { applyProposal, prepareProposal, type ProposalReview as Review } from '../lib/aiImport';
 import { createProfileContext, exchangeBaseName, logContextExport } from '../lib/aiContext';
+import { loadContextPreview } from '../lib/aiContextPreview';
 import { seedCatalog } from '../lib/catalog';
 import { downloadText, shareText } from '../lib/fileExchange';
 import { parseDocumentText, SCHEMA_IDS, type ProfileContextDocument } from '../schemas';
 import type { Route } from '../routes';
 import { btnPrimary, btnSecondary, Card, fmt, Notice, Screen } from '../ui/kit';
 
-const dateFormat = new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' });
 function errorText(cause: unknown): string {
   if (cause instanceof z.ZodError) return cause.issues.map((issue) => `${issue.path.join('.')} · ${issue.message}`).join('\n');
   return cause instanceof Error ? cause.message : 'No se pudo completar la operación.';
@@ -32,6 +33,7 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
     logs: (await db.aiExchangeLog.toArray()).filter((log) => log.status === 'applied' || log.status === 'exported')
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
   }));
+  const preview = useLiveQuery(() => loadContextPreview(db));
 
   async function prepareContext() {
     setBusy(true);
@@ -97,7 +99,7 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
   }
 
   return (
-    <Screen title="IA" subtitle="Prepara tu contexto y revisa las propuestas de ChatGPT o Gemini">
+    <Screen title="IA" subtitle="Envía tus datos a ChatGPT o Gemini, recibe un menú y revísalo">
       {error && <Notice tone="error"><p className="whitespace-pre-wrap break-words">{error}</p></Notice>}
       {message && <Notice tone="ok">{message} <button className="font-medium underline" onClick={() => go('plan')}>Ver mi plan</button></Notice>}
       {review ? (
@@ -114,46 +116,23 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
         </>
       ) : (
         <>
-          <Card title="1. Llevar tus datos a la IA">
-            <p className="text-sm text-stone-600">Prepara un archivo con tu perfil, metas, catálogo y recetas guardadas. Incluye las instrucciones para que la IA genere una propuesta compatible.</p>
+          <Card title="1 · Enviar tus datos">
+            {preview ? <ContextPreviewTable rows={preview} />
+              : <p className="text-sm text-stone-600">Leyendo tus datos…</p>}
             <button className={btnPrimary} disabled={busy} onClick={() => void prepareContext()}>{context ? 'Preparar un contexto nuevo' : 'Preparar mi contexto'}</button>
             {context && (
               <>
-                <p className="text-sm">{fmt(context.document.payload.catalogSummary.length)} alimentos · {fmt(context.document.payload.recipeSummary?.length ?? 0)} recetas.</p>
-                {!context.document.payload.activeGoal && <Notice tone="warn">Todavía no tienes metas aprobadas. Puedes acordar con la IA qué criterio usar para el menú.</Notice>}
                 <div className="flex flex-wrap gap-2">
                   <button className={btnPrimary} disabled={busy} onClick={() => void exportContext(true)}>Compartir contexto a Drive</button>
                   <button className={btnSecondary} disabled={busy} onClick={() => void exportContext(false)}>Descargar contexto</button>
                 </div>
-                <details className="text-sm">
-                  <summary className="min-h-12 cursor-pointer py-3 font-medium">Ver las instrucciones incluidas</summary>
-                  <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">{context.document.payload.aiInstructions}</pre>
-                </details>
               </>
             )}
           </Card>
-          <Card title="2. Preparar las recetas y el menú">
-            <p className="text-sm text-stone-600">Adjunta el contexto a ChatGPT o Gemini. Dile para qué semana y personas quieres cocinar, tus gustos y el tiempo disponible. Revisa las propuestas conversando y pide el JSON final cuando te encajen.</p>
-            <p className="text-sm text-stone-600">Guarda el archivo recibido en Drive, dentro de Mi Nutrición/03_IA.</p>
-          </Card>
-          <Card title="3. Actualizar datos">
-            <p className="text-sm text-stone-600">Selecciona el archivo desde Google Drive en el selector de Android. Podrás corregir la propuesta antes de confirmar.</p>
+          <Card title="2 · Importar la propuesta">
             <input ref={inputRef} type="file" className="hidden" accept="application/json,.json,text/plain,.txt" onChange={(event) => void importFile(event)} />
-            <button className={btnPrimary} disabled={busy} onClick={() => inputRef.current?.click()}>Actualizar datos desde Drive</button>
+            <button className={btnSecondary} disabled={busy} onClick={() => inputRef.current?.click()}>Elegir archivo de Drive</button>
           </Card>
-          {!!data?.logs.length && (
-            <Card title="Historial de intercambios">
-              <ul className="divide-y divide-stone-100 text-sm">
-                {data.logs.map((log) => (
-                  <li key={log.id} className="py-2">
-                    <p>{log.direction === 'export' ? 'Contexto exportado' : 'Propuesta importada'} · {dateFormat.format(new Date(log.updatedAt))}</p>
-                    <p className="text-xs text-stone-600">{log.summary}</p>
-                    <p className="break-all text-xs text-stone-500">{log.fileName}</p>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
         </>
       )}
     </Screen>

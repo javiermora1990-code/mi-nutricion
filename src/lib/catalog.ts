@@ -133,6 +133,33 @@ export async function seedCatalog(db: MiNutricionDB, now = nowIso()): Promise<vo
   });
 }
 
+const LEGACY_VEGETABLE_CATEGORY = 'Verduras y hortalizas';
+const CATEGORY_SPLIT_KEY = 'catalog.categories.verduras-hortalizas.v1';
+
+/**
+ * Reparte en «Verduras» y «Hortalizas» las fichas USDA guardadas con la categoría antigua.
+ * Solo toca fichas de la semilla que siguen en «Verduras y hortalizas»; las del usuario no se adivinan.
+ */
+export async function splitVegetableCategory(db: MiNutricionDB, now = nowIso()): Promise<number> {
+  const target = new Map<string, string>();
+  for (const [category, entries] of Object.entries(USDA_SEED)) {
+    for (const [id] of entries) target.set(String(id), category);
+  }
+  return db.transaction('rw', db.appSettings, db.foods, async () => {
+    if (await db.appSettings.get({ key: CATEGORY_SPLIT_KEY })) return 0;
+    const legacy = await db.foods.where('source').equals('usda')
+      .and((food) => food.category === LEGACY_VEGETABLE_CATEGORY).toArray();
+    const updated = legacy.flatMap((food) => {
+      const category = target.get(food.externalId ?? '');
+      return category && category !== LEGACY_VEGETABLE_CATEGORY
+        ? [{ ...food, category, revision: food.revision + 1, updatedAt: now }] : [];
+    });
+    await db.foods.bulkPut(updated);
+    await db.appSettings.add({ ...newBase(now), key: CATEGORY_SPLIT_KEY, value: true });
+    return updated.length;
+  });
+}
+
 export async function saveFood(
   db: MiNutricionDB,
   details: FoodDetails,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDb, DB_SCHEMA_VERSION, newBase, type MiNutricionDB } from '../src/db/db';
 import type { Food } from '../src/db/types';
-import { mapNutrients, saveFood, searchFoods, seedCatalog, type FoodDetails } from '../src/lib/catalog';
+import { mapNutrients, saveFood, searchFoods, seedCatalog, splitVegetableCategory, type FoodDetails } from '../src/lib/catalog';
 import { readOffResults, searchOpenFoodFacts } from '../src/lib/openFoodFacts';
 import { latestRecipes, nutrientsPerServing, recipeVersions, saveRecipe, scaleNutrients, type IngredientInput } from '../src/lib/recipes';
 
@@ -31,12 +31,12 @@ beforeEach(() => { db = createDb(`stage3-${crypto.randomUUID()}`); });
 afterEach(async () => { vi.unstubAllGlobals(); await db.delete(); });
 
 describe('Catálogo local', () => {
-  it('carga una sola vez 118 fichas USDA de ocho categorías, con referencias y medidas', async () => {
+  it('carga una sola vez 118 fichas USDA de nueve categorías, con referencias y medidas', async () => {
     await Promise.all([seedCatalog(db, when), seedCatalog(db, when)]);
     expect(DB_SCHEMA_VERSION).toBe(1);
     const foods = await db.foods.toArray();
     expect(foods).toHaveLength(118);
-    expect(new Set(foods.map((food) => food.category)).size).toBe(8);
+    expect(new Set(foods.map((food) => food.category)).size).toBe(9);
     expect(new Set(foods.map((food) => food.externalId)).size).toBe(118);
     expect(foods.every((food) => food.source === 'usda' && /^\d+$/.test(food.externalId ?? ''))).toBe(true);
     const egg = foods.find((food) => food.externalId === '171287')!;
@@ -59,6 +59,24 @@ describe('Catálogo local', () => {
     await seedCatalog(db);
     expect(await db.foods.get(initial.id)).toEqual(edited);
     expect(await db.appSettings.get({ key: 'ajuste-existente' })).toMatchObject({ value: true });
+  });
+
+  it('reparte una sola vez «Verduras y hortalizas» de la semilla y no toca las fichas propias', async () => {
+    await seedCatalog(db, when);
+    const usda = await db.foods.where('source').equals('usda').toArray();
+    const legacy = usda.filter((food) => ['Verduras', 'Hortalizas'].includes(food.category ?? ''));
+    expect(legacy).toHaveLength(20);
+    await db.foods.bulkPut(legacy.map((food) => ({ ...food, category: 'Verduras y hortalizas' })));
+    const own = await saveFood(db, { ...foodDetails, category: 'Verduras y hortalizas' });
+    const later = '2026-02-01T00:00:00Z';
+
+    expect(await splitVegetableCategory(db, later)).toBe(20);
+    expect(await splitVegetableCategory(db, later)).toBe(0);
+    const byId = new Map((await db.foods.toArray()).map((food) => [food.externalId ?? food.id, food]));
+    expect(byId.get('168462')).toMatchObject({ category: 'Verduras', updatedAt: later }); // espinacas
+    expect(byId.get('170393')).toMatchObject({ category: 'Hortalizas' }); // zanahoria
+    expect(byId.get('170393')!.revision).toBe(legacy.find((f) => f.externalId === '170393')!.revision + 1);
+    expect(await db.foods.get(own.id)).toEqual(own);
   });
 
   it('busca sin tildes por nombre, marca e identificador y omite las bajas', async () => {

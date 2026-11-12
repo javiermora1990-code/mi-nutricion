@@ -18,7 +18,8 @@ El detalle vigente está en el diseño (cabecera, sección 9 y Etapa 4 de la 16.
   - `pulido-interfaz`: revisión de propuestas compacta, Inicio centrado en el menú, semanas con flechas, resolución por nombre de alimentos de otro dispositivo.
   - `etapa-4-despensa` (sale de la anterior): despensa por lotes (`src/lib/inventory.ts`), pestaña Despensa en Plan agrupada por categorías y lista de compra que descuenta existencias. Pruebas obligatorias 1, 2 y 4 de la sección 16.1 en verde; la 3 necesita el diario y la 5 los respaldos.
 - **Pendiente en la despensa**: pasar lo comprado de la lista a la despensa, mover lotes de ubicación y mostrar líquidos en litros.
-- **Decisiones abiertas del usuario** (sección 9 del diseño): quitar la pestaña Progreso, separar verduras y hortalizas, cómo mostrar totales con alimentos sin nutrientes y si la IA indica la categoría de los alimentos nuevos.
+- **Decidido (v1.28)**: la pestaña Progreso se queda; «Verduras» y «Hortalizas» son dos categorías (migración única de las fichas USDA al abrir la app, sin cambio de esquema).
+- **Decisiones abiertas del usuario** (sección 9 del diseño): quién da los nutrientes (propuesto: siempre la app con su catálogo), cómo mostrar totales con alimentos sin nutrientes y si la IA indica la categoría de los alimentos nuevos.
 - Diario y panel Hoy siguen sin empezar: **pregunta al usuario antes de empezar el diario**.
 - Navegación: barra inferior Inicio, Plan, IA, Progreso y Configuración; Plan tiene Menú, Recetas, Compra y Despensa. El seguimiento semanal no aparece en Inicio (decisión del usuario).
 

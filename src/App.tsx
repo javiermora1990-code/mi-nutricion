@@ -1,6 +1,8 @@
 import { ArrowLeft, BookOpen, Home, LineChart as LineChartIcon, MessageCircle, Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
+import { db } from './db/db';
+import { splitVegetableCategory } from './lib/catalog';
 import { parseRoute, type Route } from './routes';
 import { CatalogScreen } from './screens/CatalogScreen';
 import { DriveTestScreen } from './screens/DriveTestScreen';
@@ -26,6 +28,7 @@ export function App() {
 
   useEffect(() => {
     registerSW({ immediate: true, onOfflineReady: () => setOfflineReady(true) });
+    splitVegetableCategory(db).catch((error) => console.error('No se pudieron reclasificar las verduras', error));
   }, []);
 
   useEffect(() => {
