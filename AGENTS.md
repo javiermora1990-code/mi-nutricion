@@ -11,9 +11,16 @@ PWA Android-first y local-first para **planificar comidas semanalmente con ayuda
 
 ## Estado
 
-- Etapas 1 y 2 completadas y verificadas por el usuario en su teléfono (versión 0.2.1).
-- **Siguiente: Etapa 3** (sección 16.3 del diseño): catálogo inicial de 80–120 alimentos (USDA, CC0, nombres en español), búsqueda en Open Food Facts, recetas versionadas, diario y panel Hoy.
-- **Decisión pendiente del usuario**: si el planificador de menús y la lista de compra (hoy en la Etapa 5) se adelantan a justo después del catálogo y las recetas. Empieza por catálogo y recetas, que hacen falta en ambos casos, y **pregunta al usuario antes de empezar el diario**.
+El detalle vigente está en el diseño (cabecera, sección 9 y Etapa 4 de la 16.3). Resumen:
+
+- **Publicado (0.4.0)**: etapas 1 y 2, catálogo y recetas de la Etapa 3, intercambio con IA, menú semanal y lista de compra. El usuario ya importó en Android una propuesta real de la IA.
+- **En ramas, sin fusionar ni publicar**:
+  - `pulido-interfaz`: revisión de propuestas compacta, Inicio centrado en el menú, semanas con flechas, resolución por nombre de alimentos de otro dispositivo.
+  - `etapa-4-despensa` (sale de la anterior): despensa por lotes (`src/lib/inventory.ts`), pestaña Despensa en Plan agrupada por categorías y lista de compra que descuenta existencias. Pruebas obligatorias 1, 2 y 4 de la sección 16.1 en verde; la 3 necesita el diario y la 5 los respaldos.
+- **Pendiente en la despensa**: pasar lo comprado de la lista a la despensa, mover lotes de ubicación y mostrar líquidos en litros.
+- **Decisiones abiertas del usuario** (sección 9 del diseño): quitar la pestaña Progreso, separar verduras y hortalizas, cómo mostrar totales con alimentos sin nutrientes y si la IA indica la categoría de los alimentos nuevos.
+- Diario y panel Hoy siguen sin empezar: **pregunta al usuario antes de empezar el diario**.
+- Navegación: barra inferior Inicio, Plan, IA, Progreso y Configuración; Plan tiene Menú, Recetas, Compra y Despensa. El seguimiento semanal no aparece en Inicio (decisión del usuario).
 
 ## Reglas que no se negocian
 
