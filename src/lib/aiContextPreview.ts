@@ -1,126 +1,221 @@
+/**
+ * Resumen legible del contexto que se envía a la IA: una tabla por bloque, solo con lo importante.
+ * No escribe en la base de datos ni importa piezas de interfaz.
+ */
 import type { MiNutricionDB } from '../db/db';
-import type { Food, IsoDate, NutritionGoal, Objective, Profile } from '../db/types';
+import type {
+  DayTargets, Food, InventoryBatch, IsoDate, NutritionGoal, Objective, Profile, Recipe, RecipeIngredient,
+} from '../db/types';
 import { formatShortDate, localIsoDate } from './dates';
 import { getActiveGoal, getCurrentProfile, getCurrentWeight, profileAge } from './profileGoals';
+import { latestRecipes, nutrientsPerServing } from './recipes';
 import { loadWeeklySummary, type WeeklySummary } from './weeklySummary';
 
-export type PreviewTone = 'ok' | 'warn' | 'block';
-export type PreviewKey = 'profile' | 'goals' | 'diary' | 'catalog';
+export type SummaryTone = 'ok' | 'warn' | 'block';
+export type SectionKey = 'profile' | 'goals' | 'weeks' | 'pantry' | 'recipes' | 'catalog';
 
-/** Una fila de la vista previa del contexto: resumen en una línea y detalle desplegable. */
-export interface ContextPreviewRow {
-  key: PreviewKey;
-  label: string;
-  summary: string;
-  /** Aviso corto que acompaña al resumen («2 sin nutrientes»). */
+/** Un bloque del resumen: título, aviso opcional y una tabla sencilla. */
+export interface SummarySection {
+  key: SectionKey;
+  title: string;
+  /** Texto corto junto al título («Mantener», «120 alimentos»). */
+  subtitle: string | null;
+  tone: SummaryTone;
+  /** Aviso en una línea; `null` si todo está bien. */
   note: string | null;
-  tone: PreviewTone;
-  details: string[];
+  /** Cabecera de columnas; vacía para tablas de dos columnas «dato · valor». */
+  columns: string[];
+  rows: string[][];
+  /** Líneas finales («y 4 más», pistas). */
+  footer: string[];
 }
 
-export interface ContextPreviewInput {
-  profile: Pick<Profile, 'sex' | 'heightCm' | 'trainingDaysPerWeek' | 'mealRoutine'> | null;
+export interface ContextSummary {
+  sections: SummarySection[];
+  canExport: boolean;
+}
+
+type PantryLine = { name: string; quantity: number; unit: InventoryBatch['unit']; expiryDate: IsoDate | null };
+type RecipeLine = { name: string; servings: number; kcalPerServing: number | null };
+
+export interface ContextSummaryInput {
+  profile: Pick<Profile, 'sex' | 'heightCm' | 'trainingDaysPerWeek' | 'trainingType' | 'workType' | 'dailyStepsBand' | 'mealRoutine'> | null;
   ageYears: number | null;
   weight: { weightKg: number; date: IsoDate } | null;
   goal: Pick<NutritionGoal, 'objective' | 'targets'> | null;
-  /** Opcional: sin registros no se envía ni se muestra. */
   weeklySummary?: WeeklySummary | null;
+  pantry?: PantryLine[];
+  recipes?: RecipeLine[];
   foods: Pick<Food, 'name' | 'brand' | 'nutrientsPer100' | 'verificationStatus' | 'deletedAt'>[];
 }
 
+/** Filas máximas por tabla: el resumen se lee de un vistazo. */
+export const MAX_ROWS = 8;
+const SIN_DATO = 'Sin dato';
+
 const OBJECTIVE_TEXT: Record<Objective, string> = { maintain: 'Mantener', fat_loss: 'Perder grasa', muscle_gain: 'Ganar masa muscular' };
+const WORK_TEXT: Record<Profile['workType'], string> = { seated: 'Sentado', standing: 'De pie', physical: 'Físico' };
+const STEPS_TEXT: Record<string, string> = {
+  '<5000': 'Menos de 5.000', '5000-7500': '5.000–7.500', '7500-10000': '7.500–10.000', '>10000': 'Más de 10.000',
+};
+const TRAINING_TEXT: Record<string, string> = { weights: 'pesas', cardio: 'cardio', mixed: 'mixto' };
+const UNIT_TEXT: Record<InventoryBatch['unit'], string> = { g: 'g', ml: 'ml', unit: 'ud.' };
+const MAIN_NUTRIENTS = ['energyKcal', 'proteinG', 'carbsG', 'fatG', 'fiberG'] as const;
+
 const numberFormats = [0, 1].map((digits) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: digits }));
 const fmt = (n: number, digits: 0 | 1 = 0) => numberFormats[digits].format(n);
-const MAIN_NUTRIENTS = ['energyKcal', 'proteinG', 'carbsG', 'fatG', 'fiberG'] as const;
+const orSinDato = (n: number | null, suffix = '', digits: 0 | 1 = 0) => (n === null ? SIN_DATO : `${fmt(n, digits)}${suffix}`);
 const plural = (n: number, one: string, many: string) => `${fmt(n)} ${n === 1 ? one : many}`;
 const foodLabel = (food: Pick<Food, 'name' | 'brand'>) => (food.brand ? `${food.name} (${food.brand})` : food.name);
+const more = (total: number) => (total > MAX_ROWS ? [`y ${fmt(total - MAX_ROWS)} más`] : []);
 
-export function buildContextPreview(input: ContextPreviewInput): ContextPreviewRow[] {
-  const rows: ContextPreviewRow[] = [];
-  const { profile, weight } = input;
-
-  if (!profile || !weight || input.ageYears === null) {
-    rows.push({
-      key: 'profile', label: 'Perfil', tone: 'block', details: [],
-      summary: 'Sin perfil', note: !profile ? 'Complétalo en Configuración para poder exportar' : 'Falta la edad o el peso',
-    });
-  } else {
-    rows.push({
-      key: 'profile', label: 'Perfil', tone: 'ok', note: null,
-      details: profile.mealRoutine ? [`Horarios: ${profile.mealRoutine}`] : [],
-      summary: [
-        profile.sex === 'female' ? 'Mujer' : 'Hombre', `${fmt(input.ageYears)} años`, `${fmt(profile.heightCm)} cm`,
-        `${fmt(weight.weightKg, 1)} kg (${formatShortDate(weight.date)})`,
-        profile.trainingDaysPerWeek ? plural(profile.trainingDaysPerWeek, 'día de entrenamiento', 'días de entrenamiento') : 'sin entrenamiento',
-      ].join(' · '),
-    });
+function profileSection(input: ContextSummaryInput): SummarySection {
+  const { profile, weight, ageYears } = input;
+  const base = { key: 'profile' as const, title: 'Perfil', subtitle: null, columns: [], footer: [] };
+  if (!profile || !weight || ageYears === null) {
+    return {
+      ...base, tone: 'block', rows: [],
+      note: !profile ? 'Sin perfil. Complétalo en Configuración para poder exportar.' : 'Falta la edad o el peso en tu perfil.',
+    };
   }
-
-  if (!input.goal) {
-    rows.push({
-      key: 'goals', label: 'Metas', tone: 'warn', details: [],
-      summary: 'Sin metas aprobadas', note: 'La IA te preguntará qué criterio usar',
-    });
-  } else {
-    const { targets } = input.goal;
-    const day = (name: string, t: typeof targets.default) =>
-      `${name}: ${fmt(t.energyKcal.central)} kcal (${fmt(t.energyKcal.minTolerance)}–${fmt(t.energyKcal.maxTolerance)}) · proteína ${fmt(t.proteinG.central)} g · grasas ${fmt(t.fatG.central)} g · hidratos ${fmt(t.carbsG.central)} g · fibra ${fmt(t.fiberG.central)} g`;
-    rows.push({
-      key: 'goals', label: 'Metas', tone: 'ok', note: null,
-      summary: `${OBJECTIVE_TEXT[input.goal.objective]} · ${fmt(targets.default.energyKcal.central)} kcal · proteína ${fmt(targets.default.proteinG.central)} g`,
-      details: [
-        day('General', targets.default),
-        ...(targets.training ? [day('Entrenamiento', targets.training)] : []),
-        ...(targets.rest ? [day('Descanso', targets.rest)] : []),
-      ],
-    });
-  }
-
-  const summary = input.weeklySummary;
-  if (summary) {
-    const daysWithData = summary.weeks.reduce((total, week) => total + week.loggedDays, 0);
-    rows.push({
-      key: 'diary', label: 'Últimas semanas', tone: 'ok', note: null,
-      summary: `${plural(summary.weeks.length, 'semana', 'semanas')} · ${plural(daysWithData, 'día anotado', 'días anotados')}`,
-      details: [
-        ...summary.weeks.map((week) => [
-          `Semana del ${formatShortDate(week.weekStart)}`,
-          week.evaluableDays ? `${fmt(week.evaluableDays)}/7 días` : 'sin días evaluables',
-          week.avgEnergyKcal !== null ? `${fmt(week.avgEnergyKcal)} kcal` : null,
-          week.avgProteinG !== null ? `proteína ${fmt(week.avgProteinG)} g` : null,
-          week.avgWeightKg !== null ? `${fmt(week.avgWeightKg, 1)} kg` : null,
-          week.plannedMealsOnLoggedDays ? `menú seguido ${fmt(week.plannedMealsLogged)}/${fmt(week.plannedMealsOnLoggedDays)}` : null,
-        ].filter(Boolean).join(' · ')),
-        ...(summary.frequentRecipes.length
-          ? [`Repites: ${summary.frequentRecipes.map((r) => `${r.name} (${fmt(r.times)})`).join(', ')}`] : []),
-        ...(summary.plannedButNotLogged.length ? [`Planificadas sin anotar: ${summary.plannedButNotLogged.join(', ')}`] : []),
-      ],
-    });
-  }
-
-  const foods = input.foods.filter((food) => !food.deletedAt);
-  const missing = foods.filter((food) => MAIN_NUTRIENTS.some((key) => food.nutrientsPer100[key] === null));
-  const pending = foods.filter((food) => food.verificationStatus === 'pending_review');
-  rows.push({
-    key: 'catalog', label: 'Catálogo', tone: missing.length ? 'warn' : 'ok',
-    summary: plural(foods.length, 'alimento', 'alimentos'),
-    note: missing.length ? `${plural(missing.length, 'sin nutrientes completos', 'sin nutrientes completos')}` : null,
-    details: [
-      ...missing.map((food) => `${foodLabel(food)} · faltan nutrientes`),
-      ...pending.filter((food) => !missing.includes(food)).map((food) => `${foodLabel(food)} · pendiente de verificar`),
+  const days = profile.trainingDaysPerWeek;
+  return {
+    ...base, tone: 'ok', note: null,
+    rows: [
+      ['Sexo', profile.sex === 'female' ? 'Mujer' : 'Hombre'],
+      ['Edad', `${fmt(ageYears)} años`],
+      ['Estatura', `${fmt(profile.heightCm)} cm`],
+      ['Peso', `${fmt(weight.weightKg, 1)} kg · ${formatShortDate(weight.date)}`],
+      ['Entrenamiento', days ? `${plural(days, 'día', 'días')} · ${TRAINING_TEXT[profile.trainingType] ?? profile.trainingType}` : 'No entrena'],
+      ['Trabajo', WORK_TEXT[profile.workType]],
+      ['Pasos al día', STEPS_TEXT[profile.dailyStepsBand] ?? profile.dailyStepsBand],
+      ...(profile.mealRoutine ? [['Horarios', profile.mealRoutine]] : []),
     ],
-  });
-
-  return rows;
+  };
 }
 
-export const canExportContext = (rows: ContextPreviewRow[]) => !rows.some((row) => row.tone === 'block');
+function goalsSection(goal: ContextSummaryInput['goal']): SummarySection {
+  const base = { key: 'goals' as const, title: 'Metas', footer: [] };
+  if (!goal) {
+    return { ...base, subtitle: null, tone: 'warn', columns: [], rows: [], note: 'Sin metas aprobadas. La IA te preguntará qué criterio usar.' };
+  }
+  const days: [string, DayTargets][] = [['General', goal.targets.default]];
+  if (goal.targets.training) days.push(['Entreno', goal.targets.training]);
+  if (goal.targets.rest) days.push(['Descanso', goal.targets.rest]);
+  const row = (label: string, key: keyof DayTargets) => [label, ...days.map(([, t]) => fmt(t[key].central))];
+  return {
+    ...base, subtitle: OBJECTIVE_TEXT[goal.objective], tone: 'ok', note: null,
+    columns: ['', ...days.map(([name]) => name)],
+    rows: [
+      row('Energía (kcal)', 'energyKcal'), row('Proteína (g)', 'proteinG'), row('Hidratos (g)', 'carbsG'),
+      row('Grasas (g)', 'fatG'), row('Fibra (g)', 'fiberG'),
+    ],
+  };
+}
 
-/** Lee perfil, metas y catálogo con los mismos criterios que `createProfileContext`, sin escribir nada. */
-export async function loadContextPreview(db: MiNutricionDB, date = new Date()): Promise<ContextPreviewRow[]> {
+function weeksSection(summary: WeeklySummary): SummarySection {
+  return {
+    key: 'weeks', title: 'Últimas semanas', subtitle: null, tone: 'ok', note: null,
+    columns: ['Semana', 'Días', 'kcal', 'Proteína', 'Peso'],
+    rows: summary.weeks.map((week) => [
+      formatShortDate(week.weekStart), `${fmt(week.evaluableDays)}/7`,
+      orSinDato(week.avgEnergyKcal), orSinDato(week.avgProteinG, ' g'), orSinDato(week.avgWeightKg, ' kg', 1),
+    ]),
+    footer: [
+      ...(summary.frequentRecipes.length ? [`Repites: ${summary.frequentRecipes.map((r) => r.name).join(', ')}`] : []),
+      ...(summary.plannedButNotLogged.length ? [`Planificadas sin anotar: ${summary.plannedButNotLogged.join(', ')}`] : []),
+    ],
+  };
+}
+
+function pantrySection(pantry: PantryLine[]): SummarySection {
+  const sorted = [...pantry].sort((a, b) =>
+    (a.expiryDate ?? '9999').localeCompare(b.expiryDate ?? '9999') || a.name.localeCompare(b.name, 'es'));
+  return {
+    key: 'pantry', title: 'Despensa', subtitle: pantry.length ? plural(pantry.length, 'producto', 'productos') : null,
+    tone: 'ok', note: pantry.length ? null : 'Vacía. La IA no supondrá que tienes nada en casa.',
+    columns: pantry.length ? ['Producto', 'Cantidad', 'Caduca'] : [],
+    rows: sorted.slice(0, MAX_ROWS).map((item) => [
+      item.name, `${fmt(item.quantity)} ${UNIT_TEXT[item.unit]}`, item.expiryDate ? formatShortDate(item.expiryDate) : '—',
+    ]),
+    footer: more(pantry.length),
+  };
+}
+
+function recipesSection(recipes: RecipeLine[]): SummarySection {
+  return {
+    key: 'recipes', title: 'Recetas', subtitle: recipes.length ? plural(recipes.length, 'receta', 'recetas') : null,
+    tone: 'ok', note: recipes.length ? null : 'Todavía no tienes recetas guardadas.',
+    columns: recipes.length ? ['Receta', 'Raciones', 'kcal/ración'] : [],
+    rows: recipes.slice(0, MAX_ROWS).map((recipe) => [recipe.name, fmt(recipe.servings), orSinDato(recipe.kcalPerServing)]),
+    footer: more(recipes.length),
+  };
+}
+
+function catalogSection(allFoods: ContextSummaryInput['foods']): SummarySection {
+  const foods = allFoods.filter((food) => !food.deletedAt);
+  const missing = foods.filter((food) => MAIN_NUTRIENTS.some((key) => food.nutrientsPer100[key] === null));
+  const pending = foods.filter((food) => food.verificationStatus === 'pending_review' && !missing.includes(food));
+  const flagged = [
+    ...missing.map((food) => [foodLabel(food), 'Faltan nutrientes']),
+    ...pending.map((food) => [foodLabel(food), 'Pendiente de verificar']),
+  ];
+  return {
+    key: 'catalog', title: 'Catálogo', subtitle: plural(foods.length, 'alimento', 'alimentos'),
+    tone: missing.length ? 'warn' : 'ok',
+    note: missing.length ? `${plural(missing.length, 'alimento', 'alimentos')} sin nutrientes completos.` : null,
+    columns: flagged.length ? ['Alimento', 'Aviso'] : [],
+    rows: flagged.slice(0, MAX_ROWS),
+    footer: more(flagged.length),
+  };
+}
+
+export function buildContextSummary(input: ContextSummaryInput): ContextSummary {
+  const sections = [
+    profileSection(input),
+    goalsSection(input.goal),
+    ...(input.weeklySummary ? [weeksSection(input.weeklySummary)] : []),
+    ...(input.pantry ? [pantrySection(input.pantry)] : []),
+    ...(input.recipes ? [recipesSection(input.recipes)] : []),
+    catalogSection(input.foods),
+  ];
+  return { sections, canExport: !sections.some((section) => section.tone === 'block') };
+}
+
+/** Agrupa los lotes disponibles por alimento y unidad, como en el contexto exportado. */
+export function pantryLines(batches: InventoryBatch[], foods: Pick<Food, 'id' | 'name'>[]): PantryLine[] {
+  const lines = new Map<string, PantryLine>();
+  for (const batch of batches) {
+    if (batch.deletedAt || batch.status !== 'available' || batch.remainingQuantity <= 0) continue;
+    const food = foods.find((f) => f.id === batch.foodId);
+    if (!food) continue;
+    const key = `${food.id}|${batch.unit}`;
+    const line = lines.get(key) ?? { name: food.name, quantity: 0, unit: batch.unit, expiryDate: null };
+    line.quantity += batch.remainingQuantity;
+    if (batch.expiryDate && (!line.expiryDate || batch.expiryDate < line.expiryDate)) line.expiryDate = batch.expiryDate;
+    lines.set(key, line);
+  }
+  return [...lines.values()];
+}
+
+export function recipeLines(recipes: Recipe[], ingredients: RecipeIngredient[]): RecipeLine[] {
+  return latestRecipes(recipes).map((recipe) => ({
+    name: recipe.name, servings: recipe.servings,
+    kcalPerServing: nutrientsPerServing(recipe, ingredients.filter((i) => !i.deletedAt && i.recipeId === recipe.id)).energyKcal,
+  }));
+}
+
+/** Lee lo mismo que `createProfileContext`, sin escribir nada. */
+export async function loadContextSummary(db: MiNutricionDB, date = new Date()): Promise<ContextSummary> {
   const today = localIsoDate(date);
-  const [profile, weight, goal, foods, weeklySummary] = await Promise.all([
+  const [profile, weight, goal, foods, weeklySummary, batches, recipes, ingredients] = await Promise.all([
     getCurrentProfile(db), getCurrentWeight(db), getActiveGoal(db), db.foods.toArray(), loadWeeklySummary(db, date),
+    db.inventoryBatches.toArray(), db.recipes.toArray(), db.recipeIngredients.toArray(),
   ]);
-  return buildContextPreview({ profile, ageYears: profile ? profileAge(profile, today) : null, weight, goal, foods, weeklySummary });
+  return buildContextSummary({
+    profile, ageYears: profile ? profileAge(profile, today) : null, weight, goal, weeklySummary,
+    pantry: pantryLines(batches, foods.filter((food) => !food.deletedAt)),
+    recipes: recipeLines(recipes, ingredients),
+    foods,
+  });
 }

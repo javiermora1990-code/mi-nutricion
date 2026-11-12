@@ -1,12 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useRef, useState, type ChangeEvent } from 'react';
 import { z } from 'zod';
-import { ContextPreviewTable } from '../components/ContextPreviewTable';
+import { ContextSummarySheet } from '../components/ContextSummarySheet';
 import { ProposalReview } from '../components/ProposalReview';
 import { db } from '../db/db';
 import { applyProposal, prepareProposal, type ProposalReview as Review } from '../lib/aiImport';
 import { createProfileContext, exchangeBaseName, logContextExport } from '../lib/aiContext';
-import { loadContextPreview } from '../lib/aiContextPreview';
+import { loadContextSummary } from '../lib/aiContextPreview';
 import { seedCatalog } from '../lib/catalog';
 import { downloadText, shareText } from '../lib/fileExchange';
 import { parseDocumentText, SCHEMA_IDS, type ProfileContextDocument } from '../schemas';
@@ -33,7 +33,8 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
     logs: (await db.aiExchangeLog.toArray()).filter((log) => log.status === 'applied' || log.status === 'exported')
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
   }));
-  const preview = useLiveQuery(() => loadContextPreview(db));
+  const summary = useLiveQuery(() => loadContextSummary(db));
+  const [showSummary, setShowSummary] = useState(false);
 
   async function prepareContext() {
     setBusy(true);
@@ -117,9 +118,11 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
       ) : (
         <>
           <Card title="1 · Enviar tus datos">
-            {preview ? <ContextPreviewTable rows={preview} />
-              : <p className="text-sm text-stone-600">Leyendo tus datos…</p>}
-            <button className={btnPrimary} disabled={busy} onClick={() => void prepareContext()}>{context ? 'Preparar un contexto nuevo' : 'Preparar mi contexto'}</button>
+            {summary && !summary.canExport && (
+              <Notice tone="error">Completa tu perfil en <button className="font-medium underline" onClick={() => go('config/perfil')}>Configuración</button> para poder exportar.</Notice>
+            )}
+            <button className={btnSecondary} disabled={!summary} onClick={() => setShowSummary(true)}>Ver resumen del contexto</button>
+            <button className={btnPrimary} disabled={busy || !summary?.canExport} onClick={() => void prepareContext()}>{context ? 'Exportar a Drive un contexto nuevo' : 'Exportar a Drive contexto'}</button>
             {context && (
               <>
                 <div className="flex flex-wrap gap-2">
@@ -135,6 +138,7 @@ export function AiScreen({ go }: { go: (route: Route) => void }) {
           </Card>
         </>
       )}
+      {showSummary && summary && <ContextSummarySheet summary={summary} onClose={() => setShowSummary(false)} />}
     </Screen>
   );
 }
